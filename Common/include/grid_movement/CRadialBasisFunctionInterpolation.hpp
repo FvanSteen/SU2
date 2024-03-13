@@ -40,9 +40,11 @@ class CRadialBasisFunctionInterpolation : public CVolumetricMovement {
 protected:
 
   vector<CRadialBasisFunctionNode*> boundaryNodes;  /*!< \brief Vector with boundary nodes.*/
+  vector<CRadialBasisFunctionNode*> greedyNodes;
   vector<unsigned long> internalNodes;              /*!< \brief Vector with internal nodes.*/
   unsigned long nBoundaryNodes,                     /*!< \brief Number of boundary nodes*/
-  nInternalNodes;                                   /*!< \brief Number of internal nodes*/
+  nInternalNodes,                                   /*!< \brief Number of internal nodes*/
+  nGreedyNodes;
 
   vector<CRadialBasisFunctionNode*>* controlNodes;  /*!< \brief Vector with control nodes*/
   
@@ -53,6 +55,8 @@ protected:
   RADIAL_BASIS kindRBF; /*!< \brief Type of Radial Basis Function.*/
   su2double radius;     /*!< \brief Support radius of compact Radial Basis Function.*/
   
+  unsigned long MaxErrorNode;
+
 public:
 
   /*!
@@ -81,7 +85,7 @@ public:
   * \param[in] config - Definition of the particular problem.
   * \param[in] iNonlinear_Iter - Surface deformation step.
   */
-  void GetInterpolationCoefficients(CGeometry* geometry, CConfig* config, unsigned long iNonlinear_Iter);
+  void GetInterpolationCoefficients(CGeometry* geometry, CConfig* config, unsigned long iNonlinear_Iter, bool DataReduction = false);
 
   /*!
   * \brief Compute the interpolation matrix with Radial Basis Function evaluations.
@@ -140,4 +144,15 @@ public:
   inline static bool Equal(CRadialBasisFunctionNode* a, CRadialBasisFunctionNode* b){
     return a->GetIndex() == b->GetIndex();
   }
+
+  void GreedyIteration(CGeometry* geometry, CConfig* config);
+
+  void GetInitMaxErrorNode(CGeometry* geometry);
+
+  void AddControlNode(CGeometry* geometry);
+
+  
+  su2double GetError(CGeometry* geometry, CConfig* config);
+
+  su2double* GetNodalError(CGeometry* geometry, CConfig* config, unsigned long iNode, su2double* localError);
 };

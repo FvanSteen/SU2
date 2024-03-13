@@ -40,7 +40,8 @@ class CRadialBasisFunctionNode{
   unsigned long idx;          /*!< \brief Global index. */
   unsigned short marker_idx;  /*!< \brief Marker index. */
   unsigned long vertex_idx;   /*!< \brief Vertex index. */
-    
+  
+  su2double error[3];
 
  public:
 
@@ -63,5 +64,11 @@ class CRadialBasisFunctionNode{
   * \brief Returns marker index.
   */
   inline unsigned short GetMarker(void){return marker_idx;}
+
+  inline void SetError(const su2double* val_error, unsigned short nDim) {
+    for (unsigned short iDim = 0; iDim < nDim; iDim++) error[iDim] = val_error[iDim];
+  }
+
+  inline su2double* GetError(void){ return error;}
 
 };
