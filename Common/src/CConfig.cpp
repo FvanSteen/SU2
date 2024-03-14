@@ -2380,7 +2380,9 @@ void CConfig::SetConfig_Options() {
   /* DESCRIPTION: Use of data reduction methods for RBF interpolated mesh deformation */
   addBoolOption("RBF_DATA_REDUCTION", RBF_DataReduction, true);
   /* DESCRIPTION: Tolerance for the data reduction methods used in RBF mesh deformation. */
-  addDoubleOption("RBF_DATA_REDUCTION_TOLERANCE", RBF_DataReductionTolerance, 1E-2);
+  addDoubleOption("RBF_GREEDY_TOLERANCE", RBF_GreedyTolerance, 1E-2);
+  /* DESCRIPTION: Tolerance for the data reduction methods used in RBF mesh deformation. */
+  addDoubleOption("RBF_GREEDY_CORRECTION_FACTOR", RBF_GreedyCorrectionFactor, 1E-2);
 
   /*!\par CONFIG_CATEGORY: FEM flow solver definition \ingroup Config*/
   /*--- Options related to the finite element flow solver---*/
