@@ -56,6 +56,8 @@ protected:
   su2double radius;     /*!< \brief Support radius of compact Radial Basis Function.*/
   
   unsigned long MaxErrorNode;
+  bool DataReduction;
+  su2double DataReductionTolerance;
 
 public:
 
@@ -85,7 +87,7 @@ public:
   * \param[in] config - Definition of the particular problem.
   * \param[in] iNonlinear_Iter - Surface deformation step.
   */
-  void GetInterpolationCoefficients(CGeometry* geometry, CConfig* config, unsigned long iNonlinear_Iter, bool DataReduction = false);
+  void GetInterpolationCoefficients(CGeometry* geometry, CConfig* config, unsigned long iNonlinear_Iter);
 
   /*!
   * \brief Compute the interpolation matrix with Radial Basis Function evaluations.
