@@ -71,7 +71,7 @@ void CRadialBasisFunctionInterpolation::SetVolume_Deformation(CGeometry* geometr
 
   /*--- Looping over the number of deformation iterations ---*/
   for (auto iNonlinear_Iter = 0ul; iNonlinear_Iter < Nonlinear_Iter; iNonlinear_Iter++) {
-    
+    cout << "deformation step: " << iNonlinear_Iter << endl;
     /*--- Compute min volume in the entire mesh. ---*/
 
     ComputeDeforming_Element_Volume(geometry, MinVolume, MaxVolume, Screen_Output);
@@ -109,6 +109,7 @@ void CRadialBasisFunctionInterpolation::SetVolume_Deformation(CGeometry* geometr
 void CRadialBasisFunctionInterpolation::GetInterpolationCoefficients(CGeometry* geometry, CConfig* config, unsigned long iNonlinear_Iter){
 
   if(DataReduction){
+
     GreedyIteration(geometry, config);
   }else{
     /*--- Deformation vector only has to be set once ---*/
@@ -258,7 +259,7 @@ void CRadialBasisFunctionInterpolation::UpdateGridCoord(CGeometry* geometry, CCo
   unsigned short iDim;
   
   /*--- Vector for storing the coordinate variation ---*/
-  su2double var_coord[nDim];
+  su2double var_coord[nDim]{0.0};
   
   /*--- Loop over the internal nodes ---*/
   for(iNode = 0; iNode < nInternalNodes; iNode++){
@@ -332,7 +333,8 @@ void CRadialBasisFunctionInterpolation::GreedyIteration(CGeometry* geometry, CCo
 
   GetInitMaxErrorNode(geometry);
   MaxError = GeometryToolbox::Norm(nDim, geometry->vertex[boundaryNodes[MaxErrorNode]->GetMarker()][boundaryNodes[MaxErrorNode]->GetVertex()]->GetVarCoord());
-
+  cout << "FOUND MAX ERROR: " << MaxError << endl;
+  MaxError = 1;
   unsigned short greedy_iter = 0;
   while(MaxError > GreedyTolerance){
     greedy_iter++;
@@ -346,7 +348,7 @@ void CRadialBasisFunctionInterpolation::GreedyIteration(CGeometry* geometry, CCo
     SolveRBF_System();
 
     MaxError = GetError(geometry, config);
-    cout << MaxError << '\t' << boundaryNodes[MaxErrorNode]->GetIndex() << '\t' << boundaryNodes[MaxErrorNode]->GetError()[0] << '\t' << boundaryNodes[MaxErrorNode]->GetError()[1] << endl;  
+    // cout << MaxError << '\t' << boundaryNodes[MaxErrorNode]->GetIndex() << '\t' << boundaryNodes[MaxErrorNode]->GetError()[0] << '\t' << boundaryNodes[MaxErrorNode]->GetError()[1] << endl;  
   }
 }
 
@@ -366,7 +368,7 @@ void CRadialBasisFunctionInterpolation::GetInitMaxErrorNode(CGeometry* geometry)
 }
 
 void CRadialBasisFunctionInterpolation::AddControlNode(CGeometry* geometry){
-  cout << "Added node: " <<  boundaryNodes[MaxErrorNode]->GetIndex() << endl;
+  // cout << "Added node: " <<  boundaryNodes[MaxErrorNode]->GetIndex() << endl;
   // addition of control node
   greedyNodes.push_back(move(boundaryNodes[MaxErrorNode]));
   nGreedyNodes++;
@@ -388,7 +390,7 @@ su2double CRadialBasisFunctionInterpolation::GetError(CGeometry* geometry, CConf
 
     boundaryNodes[iNode]->SetError(GetNodalError(geometry, config, iNode, localError), nDim);
 
-    errorMagnitude = GeometryToolbox::Norm(nDim, localError); // TODO can be a norm squared
+    errorMagnitude = GeometryToolbox::Norm(nDim, localError);
     if(errorMagnitude > error){
       error = errorMagnitude;
       MaxErrorNode = iNode;
@@ -444,13 +446,13 @@ void CRadialBasisFunctionInterpolation::SetCorrection(CGeometry* geometry){
       Coord_bound[j++] = geometry->nodes->GetCoord(iNode, iDim);
     }
   }
-  // implementation of finding closest node
+
   CADTPointsOnlyClass BoundADT(nDim, nVertexBound, Coord_bound.data(), PointIDs.data(), true);
 
   for(iNode = 0; iNode < nInternalNodes; iNode++){
     BoundADT.DetermineNearestNode(geometry->nodes->GetCoord(internalNodes[iNode]), dist, pointID, rankID);  
     auto err = boundaryNodes[pointID]->GetError();
-    cout << internalNodes[iNode] << '\t' << dist << '\t'  << boundaryNodes[pointID]->GetIndex() << '\t' << err[0] <<'\t' << err[1] << endl;
+    // cout << internalNodes[iNode] << '\t' << dist << '\t'  << boundaryNodes[pointID]->GetIndex() << '\t' << err[0] <<'\t' << err[1] << endl;
     auto rbf = SU2_TYPE::GetValue(CRadialBasisFunction::Get_RadialBasisValue(kindRBF, CorrectionRadius, dist));
     for(iDim = 0; iDim < nDim; iDim++){
       geometry->nodes->AddCoord(internalNodes[iNode], iDim, rbf*err[iDim]);
@@ -463,6 +465,4 @@ void CRadialBasisFunctionInterpolation::SetCorrection(CGeometry* geometry){
       geometry->nodes->AddCoord(boundaryNodes[iNode]->GetIndex(), iDim, -err[iDim]);
     }
   }
-  
-
 }
