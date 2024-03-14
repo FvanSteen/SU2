@@ -151,7 +151,7 @@ public:
 
   void GreedyIteration(CGeometry* geometry, CConfig* config);
 
-  void GetInitMaxErrorNode(CGeometry* geometry);
+  void GetInitMaxErrorNode(CGeometry* geometry, CConfig* config);
 
   void AddControlNode(CGeometry* geometry);
 
