@@ -57,7 +57,9 @@ protected:
   
   unsigned long MaxErrorNode;
   bool DataReduction;
-  su2double DataReductionTolerance;
+  su2double GreedyTolerance;
+  su2double GreedyCorrectionFactor;
+  su2double MaxError;
 
 public:
 
@@ -157,4 +159,6 @@ public:
   su2double GetError(CGeometry* geometry, CConfig* config);
 
   su2double* GetNodalError(CGeometry* geometry, CConfig* config, unsigned long iNode, su2double* localError);
+
+  void SetCorrection(CGeometry* geometry);
 };

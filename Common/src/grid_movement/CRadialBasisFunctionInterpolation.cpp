@@ -28,6 +28,7 @@
 #include "../../include/grid_movement/CRadialBasisFunctionInterpolation.hpp"
 #include "../../include/interface_interpolation/CRadialBasisFunction.hpp"
 #include "../../include/toolboxes/geometry_toolbox.hpp"
+#include "../../include/adt/CADTPointsOnlyClass.hpp"
 
 
 CRadialBasisFunctionInterpolation::CRadialBasisFunctionInterpolation(CGeometry* geometry, CConfig* config) : CVolumetricMovement(geometry) {
@@ -35,13 +36,12 @@ CRadialBasisFunctionInterpolation::CRadialBasisFunctionInterpolation(CGeometry* 
   kindRBF =  config->GetKindRadialBasisFunction();
   radius = config->GetRadialBasisFunctionParameter();
   
-  
-
   DataReduction = config->GetRBF_DataReduction();
   
   if(DataReduction){
     controlNodes = &greedyNodes;
-    DataReductionTolerance = config->GetRBF_DataReductionTolerance();
+    GreedyTolerance = config->GetRBF_GreedyTolerance();
+    GreedyCorrectionFactor = config->GetRBF_GreedyCorrectionFactor();
   }else{
     controlNodes = &boundaryNodes;
   }
@@ -286,8 +286,7 @@ void CRadialBasisFunctionInterpolation::UpdateGridCoord(CGeometry* geometry, CCo
   }  
 
   if(DataReduction){
-    // setting the coords of the boundary nodes in case of greedy
-    su2double* disp;
+    // setting the coords of the boundary nodes (non-control) in case of greedy
     for(iNode = 0; iNode < nBoundaryNodes; iNode++){
       for(cNode = 0; cNode < controlNodes->size(); cNode++){
     
@@ -321,16 +320,21 @@ void CRadialBasisFunctionInterpolation::UpdateGridCoord(CGeometry* geometry, CCo
         geometry->nodes->AddCoord((*controlNodes)[cNode]->GetIndex(), iDim, deformationVector[cNode + iDim*controlNodes->size()]);
       }
     }
-  }  
+  }
+
+  if(DataReduction){
+    SetCorrection(geometry);
+  }
+
 }
 
 void CRadialBasisFunctionInterpolation::GreedyIteration(CGeometry* geometry, CConfig* config){
 
   GetInitMaxErrorNode(geometry);
-  auto error = GeometryToolbox::Norm(nDim, geometry->vertex[boundaryNodes[MaxErrorNode]->GetMarker()][boundaryNodes[MaxErrorNode]->GetVertex()]->GetVarCoord());
+  MaxError = GeometryToolbox::Norm(nDim, geometry->vertex[boundaryNodes[MaxErrorNode]->GetMarker()][boundaryNodes[MaxErrorNode]->GetVertex()]->GetVarCoord());
 
   unsigned short greedy_iter = 0;
-  while(error > DataReductionTolerance){
+  while(MaxError > GreedyTolerance){
     greedy_iter++;
     cout << "iteration: " << greedy_iter << endl;
     AddControlNode(geometry);
@@ -341,8 +345,8 @@ void CRadialBasisFunctionInterpolation::GreedyIteration(CGeometry* geometry, CCo
 
     SolveRBF_System();
 
-    error = GetError(geometry, config);
-    cout << error << '\t' << boundaryNodes[MaxErrorNode]->GetIndex() << '\t' << boundaryNodes[MaxErrorNode]->GetError()[0] << '\t' << boundaryNodes[MaxErrorNode]->GetError()[1] << endl;  
+    MaxError = GetError(geometry, config);
+    cout << MaxError << '\t' << boundaryNodes[MaxErrorNode]->GetIndex() << '\t' << boundaryNodes[MaxErrorNode]->GetError()[0] << '\t' << boundaryNodes[MaxErrorNode]->GetError()[1] << endl;  
   }
 }
 
@@ -368,7 +372,7 @@ void CRadialBasisFunctionInterpolation::AddControlNode(CGeometry* geometry){
   nGreedyNodes++;
 
   // removing node from the set of boundary nodes
-  boundaryNodes.erase(boundaryNodes.begin()+MaxErrorNode); //TODO is MaxErrorIndex might be better term
+  boundaryNodes.erase(boundaryNodes.begin()+MaxErrorNode);
   nBoundaryNodes--;
 
 }
@@ -378,19 +382,19 @@ su2double CRadialBasisFunctionInterpolation::GetError(CGeometry* geometry, CConf
   unsigned short iDim;
   su2double localError[nDim];
 
-  su2double maxError = 0.0, errorMagnitude;
+  su2double error = 0.0, errorMagnitude;
 
   for(iNode = 0; iNode < nBoundaryNodes; iNode++){
 
     boundaryNodes[iNode]->SetError(GetNodalError(geometry, config, iNode, localError), nDim);
 
     errorMagnitude = GeometryToolbox::Norm(nDim, localError); // TODO can be a norm squared
-    if(errorMagnitude > maxError){
-      maxError = errorMagnitude;
+    if(errorMagnitude > error){
+      error = errorMagnitude;
       MaxErrorNode = iNode;
     }
   }  
-  return maxError;
+  return error;
 }
 
 su2double* CRadialBasisFunctionInterpolation::GetNodalError(CGeometry* geometry, CConfig* config, unsigned long iNode, su2double* localError){ 
@@ -417,6 +421,48 @@ su2double* CRadialBasisFunctionInterpolation::GetNodalError(CGeometry* geometry,
       localError[iDim] += rbf*coefficients[cNode + iDim*controlNodes->size()];
     }
   }
-  cout << boundaryNodes[iNode]->GetIndex() << '\t' << localError[0] << '\t' << localError[1] << endl;
+  // cout << boundaryNodes[iNode]->GetIndex() << '\t' << localError[0] << '\t' << localError[1] << endl;
   return localError;
+}
+
+void CRadialBasisFunctionInterpolation::SetCorrection(CGeometry* geometry){
+  unsigned long iVertex, iNode, iDim, i, j, pointID;
+  unsigned long nVertexBound = nBoundaryNodes;
+  su2double dist;
+  vector<su2double> Coord_bound(nDim*nVertexBound);
+  vector<unsigned long> PointIDs(nVertexBound);
+  int rankID;
+
+  su2double CorrectionRadius = GreedyCorrectionFactor*MaxError;
+
+  i = 0;
+  j = 0;
+  for(iVertex = 0; iVertex < nVertexBound; iVertex++){
+    iNode = boundaryNodes[iVertex]->GetIndex();
+    PointIDs[i++] = iVertex;
+    for(iDim = 0; iDim < nDim; iDim++){
+      Coord_bound[j++] = geometry->nodes->GetCoord(iNode, iDim);
+    }
+  }
+  // implementation of finding closest node
+  CADTPointsOnlyClass BoundADT(nDim, nVertexBound, Coord_bound.data(), PointIDs.data(), true);
+
+  for(iNode = 0; iNode < nInternalNodes; iNode++){
+    BoundADT.DetermineNearestNode(geometry->nodes->GetCoord(internalNodes[iNode]), dist, pointID, rankID);  
+    auto err = boundaryNodes[pointID]->GetError();
+    cout << internalNodes[iNode] << '\t' << dist << '\t'  << boundaryNodes[pointID]->GetIndex() << '\t' << err[0] <<'\t' << err[1] << endl;
+    auto rbf = SU2_TYPE::GetValue(CRadialBasisFunction::Get_RadialBasisValue(kindRBF, CorrectionRadius, dist));
+    for(iDim = 0; iDim < nDim; iDim++){
+      geometry->nodes->AddCoord(internalNodes[iNode], iDim, rbf*err[iDim]);
+    }
+  }
+
+  for(iNode = 0; iNode < nBoundaryNodes; iNode++){
+    auto err =  boundaryNodes[iNode]->GetError();
+    for(iDim = 0; iDim < nDim; iDim++){
+      geometry->nodes->AddCoord(boundaryNodes[iNode]->GetIndex(), iDim, -err[iDim]);
+    }
+  }
+  
+
 }
