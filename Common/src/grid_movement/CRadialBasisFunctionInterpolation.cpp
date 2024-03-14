@@ -109,6 +109,7 @@ void CRadialBasisFunctionInterpolation::SetVolume_Deformation(CGeometry* geometr
 void CRadialBasisFunctionInterpolation::GetInterpolationCoefficients(CGeometry* geometry, CConfig* config, unsigned long iNonlinear_Iter){
 
   if(DataReduction){
+
     GreedyIteration(geometry, config);
   }else{
     /*--- Deformation vector only has to be set once ---*/
