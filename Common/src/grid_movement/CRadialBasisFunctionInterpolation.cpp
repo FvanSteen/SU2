@@ -74,6 +74,7 @@ void CRadialBasisFunctionInterpolation::SetVolume_Deformation(CGeometry* geometr
     
     if(1){
       GetBL_Deformation(geometry, config);
+      GetInterpolationCoefficients(geometry, config, iNonlinear_Iter);
     }
 
     /*--- Updating the coordinates of the grid ---*/
@@ -113,6 +114,8 @@ void CRadialBasisFunctionInterpolation::GetInterpolationCoefficients(CGeometry* 
 
   /*--- Solving the RBF system to get the interpolation coefficients ---*/
   SolveRBF_System();   
+
+  cout << "system has been solved " << endl;
 }
 
 
@@ -138,8 +141,8 @@ void CRadialBasisFunctionInterpolation::SetControlNodes(CGeometry* geometry, CCo
       if(!config->GetMarker_All_Deform_Mesh_Internal(iMarker)){
         boundaryNodes[count+iVertex] = new CRadialBasisFunctionNode(geometry, iMarker, iVertex);
       }
-      if(config->GetMarker_All_TagBound(iMarker) == "BL"){
-        bl_nodes.push_back(geometry->vertex[iMarker][iVertex]->GetNode());
+      if(config->GetMarker_All_TagBound(iMarker) == "BL"){ //TODO -> if marker is a boundary layer marker
+        bl_nodes.push_back(new CRadialBasisFunctionNode(geometry, iMarker, iVertex));
       }
       
     }
@@ -194,13 +197,14 @@ void CRadialBasisFunctionInterpolation::SetDeformationVector(CGeometry* geometry
     successive small deformations. ---*/
   su2double VarIncrement = 1.0 / ((su2double)config->GetGridDef_Nonlinear_Iter());
 
-  /*--- Setting nonzero displacements of the moving markers ---*/
-  for(auto i = 0; i < controlNodes->size(); i++){
-    if(config->GetMarker_All_Moving((*controlNodes)[i]->GetMarker())){
+  /*--- Setting nonzero displacements of the moving markers ---*/ 
+  for(auto i = 0; i < controlNodes->size(); i++){ //TODO change the way the BL edge nodes are dealt with
+    // if(config->GetMarker_All_Moving((*controlNodes)[i]->GetMarker())){
+
       for(auto iDim = 0; iDim < nDim; iDim++){
         deformationVector[i+iDim*controlNodes->size()] = SU2_TYPE::GetValue(geometry->vertex[(*controlNodes)[i]->GetMarker()][(*controlNodes)[i]->GetVertex()]->GetVarCoord()[iDim] * VarIncrement);
       }
-    }
+    // }
   }  
 }
 
@@ -275,12 +279,12 @@ void CRadialBasisFunctionInterpolation::UpdateGridCoord(CGeometry* geometry, CCo
   }  
   
   /*--- Applying the surface deformation, which are stored in the deformation vector ---*/
-  for(cNode = 0; cNode < controlNodes->size(); cNode++){
-    if(config->GetMarker_All_Moving((*controlNodes)[cNode]->GetMarker())){
+  for(cNode = 0; cNode < controlNodes->size(); cNode++){ //TODO deal differently with BL edge nodes
+    // if(config->GetMarker_All_Moving((*controlNodes)[cNode]->GetMarker())){
       for(iDim = 0; iDim < nDim; iDim++){
         geometry->nodes->AddCoord((*controlNodes)[cNode]->GetIndex(), iDim, deformationVector[cNode + iDim*controlNodes->size()]);
       }
-    }
+    // }
   }  
 
 }
@@ -298,7 +302,7 @@ void CRadialBasisFunctionInterpolation::GetBL_Deformation(CGeometry* geometry, C
 
   for(iNode = 0; iNode < bl_nodes.size(); iNode++){
     // obtain current coordinate
-    auto coord = geometry->nodes->GetCoord(bl_nodes[iNode]);
+    auto coord = geometry->nodes->GetCoord(bl_nodes[iNode]->GetIndex());
 
     // set new_coord equal to old coordinate
     for( iDim = 0; iDim < nDim; iDim++){
@@ -362,27 +366,32 @@ void CRadialBasisFunctionInterpolation::GetBL_Deformation(CGeometry* geometry, C
     auto dp = GeometryToolbox::DotProduct(nDim, normal, dist_vec);
 
     added_thickness =  abs(dp) - bl_thickness;
+    su2double var_coord[nDim];
     for(iDim = 0; iDim < nDim; iDim++){
       new_coord[iNode][iDim] += added_thickness * normal[iDim];
+      var_coord[iDim] = new_coord[iNode][iDim] - geometry->nodes->GetCoord(bl_nodes[iNode]->GetIndex())[iDim];
     }
+    geometry->vertex[bl_nodes[iNode]->GetMarker()][bl_nodes[iNode]->GetVertex()]->SetVarCoord(var_coord); //TODO include consideration for number of deformation steps
   }
 
-  for(iNode = 0; iNode < interpMat.Size();iNode++){
-    for (jNode = 0; jNode <interpMat.Size(); jNode++){
-      cout << interpMat.Get(iNode, jNode) << '\t';
+  for( jNode = 0; jNode < controlNodes->size(); jNode++){
+    for(iDim = 0; iDim < nDim; iDim++){
+      geometry->nodes->AddCoord((*controlNodes)[jNode]->GetIndex(), iDim, -deformationVector[jNode + iDim * controlNodes->size()]);
     }
-    cout << endl;
   }
-  // adjusting the interpolation matrix
-  interpMat.Initialize(controlNodes->size() + bl_nodes.size());
-
-  for(iNode = 0; iNode < interpMat.Size();iNode++){
-    for (jNode = 0; jNode <interpMat.Size(); jNode++){
-      cout << interpMat.Get(iNode, jNode) << '\t';
-    }
-    cout << endl;
-  }
-
-
+  // applying the deformation of the control nodes and updating the CV's to obtain new normals 
+  geometry->SetBoundControlVolume(config, UPDATE);
   
+  // add bl nodes to the control nodes
+  for(iNode = 0; iNode < bl_nodes.size(); iNode++){
+    controlNodes->push_back(move(bl_nodes[iNode]));
+  }
+
+  //TODO hardcoded :)
+  nInternalNodes = 3;
+  internalNodes.resize(nInternalNodes);
+  internalNodes[0] = 1;
+  internalNodes[1] = 4;
+  internalNodes[2] = 7;
+
 }
