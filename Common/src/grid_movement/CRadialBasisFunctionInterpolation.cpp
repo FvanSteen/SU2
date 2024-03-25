@@ -28,6 +28,7 @@
 #include "../../include/grid_movement/CRadialBasisFunctionInterpolation.hpp"
 #include "../../include/interface_interpolation/CRadialBasisFunction.hpp"
 #include "../../include/toolboxes/geometry_toolbox.hpp"
+#include "../../include/adt/CADTPointsOnlyClass.hpp"
 
 
 CRadialBasisFunctionInterpolation::CRadialBasisFunctionInterpolation(CGeometry* geometry, CConfig* config) : CVolumetricMovement(geometry) {
@@ -71,6 +72,10 @@ void CRadialBasisFunctionInterpolation::SetVolume_Deformation(CGeometry* geometr
     /*--- Obtaining the interpolation coefficients of the control nodes ---*/
     GetInterpolationCoefficients(geometry, config, iNonlinear_Iter);
     
+    if(1){
+      GetBL_Deformation(geometry, config);
+    }
+
     /*--- Updating the coordinates of the grid ---*/
     UpdateGridCoord(geometry, config);
 
@@ -115,7 +120,6 @@ void CRadialBasisFunctionInterpolation::SetControlNodes(CGeometry* geometry, CCo
   unsigned short iMarker; 
   unsigned short iVertex; 
 
-
   /*--- Total number of boundary nodes (including duplicates of shared boundaries) ---*/
   unsigned long nBoundNodes = 0;
   for(iMarker = 0; iMarker < config->GetnMarker_All(); iMarker++){
@@ -134,6 +138,10 @@ void CRadialBasisFunctionInterpolation::SetControlNodes(CGeometry* geometry, CCo
       if(!config->GetMarker_All_Deform_Mesh_Internal(iMarker)){
         boundaryNodes[count+iVertex] = new CRadialBasisFunctionNode(geometry, iMarker, iVertex);
       }
+      if(config->GetMarker_All_TagBound(iMarker) == "BL"){
+        bl_nodes.push_back(geometry->vertex[iMarker][iVertex]->GetNode());
+      }
+      
     }
     count += geometry->nVertex[iMarker];
   }
@@ -145,8 +153,7 @@ void CRadialBasisFunctionInterpolation::SetControlNodes(CGeometry* geometry, CCo
   boundaryNodes.resize(std::distance(boundaryNodes.begin(), unique(boundaryNodes.begin(), boundaryNodes.end(), Equal)));
   
   /*--- Updating the number of boundary nodes ---*/
-  nBoundaryNodes = boundaryNodes.size();
-  
+  nBoundaryNodes = boundaryNodes.size();  
 }
 
 void CRadialBasisFunctionInterpolation::SetInterpolationMatrix(CGeometry* geometry, CConfig* config){
@@ -276,4 +283,106 @@ void CRadialBasisFunctionInterpolation::UpdateGridCoord(CGeometry* geometry, CCo
     }
   }  
 
+}
+
+void CRadialBasisFunctionInterpolation::GetBL_Deformation(CGeometry* geometry, CConfig* config){
+  cout << "obtaining the deformation of the outer BL edge" << endl;
+  unsigned long iNode, jNode; 
+  unsigned short iDim;
+
+
+  su2double bl_thickness = 0.5; //TODO make function to determine this automatically.
+
+  // finding free deformation of boundary layer edge nodes
+  su2matrix<su2double> new_coord(bl_nodes.size(), nDim);
+
+  for(iNode = 0; iNode < bl_nodes.size(); iNode++){
+    // obtain current coordinate
+    auto coord = geometry->nodes->GetCoord(bl_nodes[iNode]);
+
+    // set new_coord equal to old coordinate
+    for( iDim = 0; iDim < nDim; iDim++){
+      new_coord[iNode][iDim] = coord[iDim];
+    }
+
+    for(jNode = 0; jNode < controlNodes->size(); jNode++){
+
+      auto dist = GeometryToolbox::Distance(nDim, geometry->nodes->GetCoord((*controlNodes)[jNode]->GetIndex()), coord);
+
+      auto rbf = SU2_TYPE::GetValue(CRadialBasisFunction::Get_RadialBasisValue(kindRBF, radius, dist));
+
+      // apply free deformation 
+      for( iDim = 0; iDim < nDim; iDim++){
+        new_coord[iNode][iDim] += rbf*coefficients[jNode + iDim*controlNodes->size()];
+      }
+    }
+  }
+  
+
+  // adt variables
+  vector<su2double> Coord_bound(nDim * controlNodes->size());
+  vector<unsigned long> PointIDs(controlNodes->size());
+  unsigned long pointID;  
+  su2double dist;
+  int rankID;
+  unsigned long ii = 0;
+
+
+  // applying the deformation to the control nodes (wall nodes)
+  // and obtaining the information for the ad tree
+  for( jNode = 0; jNode < controlNodes->size(); jNode++){
+    PointIDs[jNode] = jNode;
+    for(iDim = 0; iDim < nDim; iDim++){
+      geometry->nodes->AddCoord((*controlNodes)[jNode]->GetIndex(), iDim, deformationVector[jNode + iDim * controlNodes->size()]);
+      Coord_bound[ii++] = geometry->nodes->GetCoord((*controlNodes)[jNode]->GetIndex())[iDim];
+    }
+  }
+
+  // applying the deformation of the control nodes and updating the CV's to obtain new normals 
+  geometry->SetBoundControlVolume(config, UPDATE);
+
+  // assembly of the ad tree
+  CADTPointsOnlyClass WallADT(nDim, controlNodes->size(), Coord_bound.data(), PointIDs.data(), true);
+
+  su2double nc[nDim];
+  su2double dist_vec[nDim];
+  su2double added_thickness;
+  for(iNode = 0; iNode < bl_nodes.size(); iNode++){
+
+    WallADT.DetermineNearestNode(new_coord[iNode], dist, pointID, rankID);
+    
+    auto normal = geometry->vertex[(*controlNodes)[pointID]->GetMarker()][(*controlNodes)[pointID]->GetVertex()]->GetNormal(); 
+    auto normal_length = GeometryToolbox::Norm(nDim, normal);
+
+    for(iDim = 0; iDim < nDim; iDim++){
+      normal[iDim] = normal[iDim]/normal_length;
+    }
+    GeometryToolbox::Distance(nDim, new_coord[iNode], geometry->nodes->GetCoord((*controlNodes)[pointID]->GetIndex()), dist_vec);
+
+    auto dp = GeometryToolbox::DotProduct(nDim, normal, dist_vec);
+
+    added_thickness =  abs(dp) - bl_thickness;
+    for(iDim = 0; iDim < nDim; iDim++){
+      new_coord[iNode][iDim] += added_thickness * normal[iDim];
+    }
+  }
+
+  for(iNode = 0; iNode < interpMat.Size();iNode++){
+    for (jNode = 0; jNode <interpMat.Size(); jNode++){
+      cout << interpMat.Get(iNode, jNode) << '\t';
+    }
+    cout << endl;
+  }
+  // adjusting the interpolation matrix
+  interpMat.Initialize(controlNodes->size() + bl_nodes.size());
+
+  for(iNode = 0; iNode < interpMat.Size();iNode++){
+    for (jNode = 0; jNode <interpMat.Size(); jNode++){
+      cout << interpMat.Get(iNode, jNode) << '\t';
+    }
+    cout << endl;
+  }
+
+
+  
 }

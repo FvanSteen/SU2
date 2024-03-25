@@ -39,6 +39,8 @@
 class CRadialBasisFunctionInterpolation : public CVolumetricMovement {
 protected:
 
+  vector<su2double> bl_nodes;
+
   vector<CRadialBasisFunctionNode*> boundaryNodes;  /*!< \brief Vector with boundary nodes.*/
   vector<unsigned long> internalNodes;              /*!< \brief Vector with internal nodes.*/
   unsigned long nBoundaryNodes,                     /*!< \brief Number of boundary nodes*/
@@ -140,4 +142,6 @@ public:
   inline static bool Equal(CRadialBasisFunctionNode* a, CRadialBasisFunctionNode* b){
     return a->GetIndex() == b->GetIndex();
   }
+
+  void GetBL_Deformation(CGeometry* geometry, CConfig* config);
 };
