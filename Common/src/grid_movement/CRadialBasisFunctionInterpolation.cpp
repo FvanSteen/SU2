@@ -37,6 +37,9 @@ CRadialBasisFunctionInterpolation::CRadialBasisFunctionInterpolation(CGeometry* 
   radius = config->GetRadialBasisFunctionParameter();
   
   controlNodes = &boundaryNodes;
+  if(1){//TODO -> if BL preservation
+    controlNodes = &wallNodes;
+  }
 }
 
 CRadialBasisFunctionInterpolation::~CRadialBasisFunctionInterpolation(void) = default;
@@ -57,9 +60,11 @@ void CRadialBasisFunctionInterpolation::SetVolume_Deformation(CGeometry* geometr
   if (config->GetSmoothGradient()) Screen_Output = true;
 
   /*--- Assigning the node types ---*/
+  // NOTE Adding the BL nodes at the end of the controlNodes vector does not work since then it will go wrong when determining the internal nodes
+  // therefore to get the accurate internal nodes all nodes should be included in the controlNodes and somehow the wall and bl nodes should be seperated.
   SetControlNodes(geometry, config);
   SetInternalNodes(geometry);
-
+  
   /*--- Looping over the number of deformation iterations ---*/
   for (auto iNonlinear_Iter = 0ul; iNonlinear_Iter < Nonlinear_Iter; iNonlinear_Iter++) {
     
@@ -71,9 +76,10 @@ void CRadialBasisFunctionInterpolation::SetVolume_Deformation(CGeometry* geometr
 
     /*--- Obtaining the interpolation coefficients of the control nodes ---*/
     GetInterpolationCoefficients(geometry, config, iNonlinear_Iter);
-    
-    if(1){
+
+    if(1){//TODO -> add option to enable BL preservation
       GetBL_Deformation(geometry, config);
+      controlNodes = &boundaryNodes;
       GetInterpolationCoefficients(geometry, config, iNonlinear_Iter);
     }
 
@@ -108,7 +114,12 @@ void CRadialBasisFunctionInterpolation::GetInterpolationCoefficients(CGeometry* 
   if(iNonlinear_Iter == 0){
     SetDeformationVector(geometry, config);
   }
-
+  // for(auto x : *controlNodes){
+  //   cout << x->GetIndex() << endl;
+  // }
+  // for(auto x : deformationVector){
+  //   cout << x << endl;
+  // }
   /*--- Computing the interpolation matrix with RBF evaluations based on Euclidean distance ---*/
   SetInterpolationMatrix(geometry, config);
 
@@ -123,30 +134,45 @@ void CRadialBasisFunctionInterpolation::SetControlNodes(CGeometry* geometry, CCo
   unsigned short iMarker; 
   unsigned short iVertex; 
 
+  unsigned long nBoundaryLayerNodes = 0, nWallNodes = 0;
+
   /*--- Total number of boundary nodes (including duplicates of shared boundaries) ---*/
   unsigned long nBoundNodes = 0;
   for(iMarker = 0; iMarker < config->GetnMarker_All(); iMarker++){
     if(!config->GetMarker_All_Deform_Mesh_Internal(iMarker)){
       nBoundNodes += geometry->nVertex[iMarker]; 
     }
+    if(1){//TODO if BL preservation
+      if(config->GetMarker_All_TagBound(iMarker) == "BOUNDARY_LAYER"){//TODO add function to check if marker is BL marker
+        nBoundaryLayerNodes += geometry->nVertex[iMarker];
+      }else if(config->GetMarker_All_TagBound(iMarker) == "CYLINDER"){//TODO if marker is wall marker
+        nWallNodes += geometry->nVertex[iMarker];
+      }
+    }
   }
 
   /*--- Vector with boudary nodes has at most nBoundNodes ---*/
   boundaryNodes.resize(nBoundNodes);
+  boundaryLayerNodes.resize(nBoundaryLayerNodes);
+  wallNodes.resize(nWallNodes);
 
   /*--- Storing of the global, marker and vertex indices ---*/
-  unsigned long count = 0;
+  unsigned long count = 0, ii = 0, jj = 0;
   for(iMarker = 0; iMarker < config->GetnMarker_All(); iMarker++){
-    for(iVertex = 0; iVertex < geometry->nVertex[iMarker]; iVertex++){
-      if(!config->GetMarker_All_Deform_Mesh_Internal(iMarker)){
-        boundaryNodes[count+iVertex] = new CRadialBasisFunctionNode(geometry, iMarker, iVertex);
-      }
-      if(config->GetMarker_All_TagBound(iMarker) == "BL"){ //TODO -> if marker is a boundary layer marker
-        bl_nodes.push_back(new CRadialBasisFunctionNode(geometry, iMarker, iVertex));
-      }
+    if(!config->GetMarker_All_Deform_Mesh_Internal(iMarker)){
+      for(iVertex = 0; iVertex < geometry->nVertex[iMarker]; iVertex++){
       
+        boundaryNodes[count++] = new CRadialBasisFunctionNode(geometry, iMarker, iVertex);
+      
+      if(1){//todo if BL preservation
+        if(config->GetMarker_All_TagBound(iMarker) == "BOUNDARY_LAYER"){ //TODO -> if marker is a boundary layer marker
+          boundaryLayerNodes[ii++] = boundaryNodes[count-1];
+        }else if (config->GetMarker_All_TagBound(iMarker) == "CYLINDER"){//TODO if marker is wall marker
+          wallNodes[jj++] = boundaryNodes[count-1];
+        } 
+      }
+      }
     }
-    count += geometry->nVertex[iMarker];
   }
 
   /*--- Sorting of the boundary nodes based on global index ---*/
@@ -295,14 +321,14 @@ void CRadialBasisFunctionInterpolation::GetBL_Deformation(CGeometry* geometry, C
   unsigned short iDim;
 
 
-  su2double bl_thickness = 0.5; //TODO make function to determine this automatically.
+  su2double bl_thickness = 0.0714; //TODO make function to determine this automatically.
 
   // finding free deformation of boundary layer edge nodes
-  su2matrix<su2double> new_coord(bl_nodes.size(), nDim);
+  su2matrix<su2double> new_coord(boundaryLayerNodes.size(), nDim);
 
-  for(iNode = 0; iNode < bl_nodes.size(); iNode++){
+  for(iNode = 0; iNode < boundaryLayerNodes.size(); iNode++){
     // obtain current coordinate
-    auto coord = geometry->nodes->GetCoord(bl_nodes[iNode]->GetIndex());
+    auto coord = geometry->nodes->GetCoord(boundaryLayerNodes[iNode]->GetIndex());
 
     // set new_coord equal to old coordinate
     for( iDim = 0; iDim < nDim; iDim++){
@@ -351,7 +377,7 @@ void CRadialBasisFunctionInterpolation::GetBL_Deformation(CGeometry* geometry, C
   su2double nc[nDim];
   su2double dist_vec[nDim];
   su2double added_thickness;
-  for(iNode = 0; iNode < bl_nodes.size(); iNode++){
+  for(iNode = 0; iNode < boundaryLayerNodes.size(); iNode++){
 
     WallADT.DetermineNearestNode(new_coord[iNode], dist, pointID, rankID);
     
@@ -369,9 +395,9 @@ void CRadialBasisFunctionInterpolation::GetBL_Deformation(CGeometry* geometry, C
     su2double var_coord[nDim];
     for(iDim = 0; iDim < nDim; iDim++){
       new_coord[iNode][iDim] += added_thickness * normal[iDim];
-      var_coord[iDim] = new_coord[iNode][iDim] - geometry->nodes->GetCoord(bl_nodes[iNode]->GetIndex())[iDim];
+      var_coord[iDim] = new_coord[iNode][iDim] - geometry->nodes->GetCoord(boundaryLayerNodes[iNode]->GetIndex())[iDim];
     }
-    geometry->vertex[bl_nodes[iNode]->GetMarker()][bl_nodes[iNode]->GetVertex()]->SetVarCoord(var_coord); //TODO include consideration for number of deformation steps
+    geometry->vertex[boundaryLayerNodes[iNode]->GetMarker()][boundaryLayerNodes[iNode]->GetVertex()]->SetVarCoord(var_coord); //TODO include consideration for number of deformation steps
   }
 
   for( jNode = 0; jNode < controlNodes->size(); jNode++){
@@ -383,15 +409,7 @@ void CRadialBasisFunctionInterpolation::GetBL_Deformation(CGeometry* geometry, C
   geometry->SetBoundControlVolume(config, UPDATE);
   
   // add bl nodes to the control nodes
-  for(iNode = 0; iNode < bl_nodes.size(); iNode++){
-    controlNodes->push_back(move(bl_nodes[iNode]));
+  for(iNode = 0; iNode < boundaryLayerNodes.size(); iNode++){
+    controlNodes->push_back(move(boundaryLayerNodes[iNode]));
   }
-
-  //TODO hardcoded :)
-  nInternalNodes = 3;
-  internalNodes.resize(nInternalNodes);
-  internalNodes[0] = 1;
-  internalNodes[1] = 4;
-  internalNodes[2] = 7;
-
 }

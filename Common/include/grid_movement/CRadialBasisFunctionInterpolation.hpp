@@ -39,12 +39,14 @@
 class CRadialBasisFunctionInterpolation : public CVolumetricMovement {
 protected:
 
-  vector<CRadialBasisFunctionNode*> bl_nodes;
+  vector<CRadialBasisFunctionNode*> boundaryLayerNodes;
+  vector<CRadialBasisFunctionNode*> wallNodes;
 
   vector<CRadialBasisFunctionNode*> boundaryNodes;  /*!< \brief Vector with boundary nodes.*/
   vector<unsigned long> internalNodes;              /*!< \brief Vector with internal nodes.*/
   unsigned long nBoundaryNodes,                     /*!< \brief Number of boundary nodes*/
   nInternalNodes;                                   /*!< \brief Number of internal nodes*/
+  unsigned long nControlNodes;
 
   vector<CRadialBasisFunctionNode*>* controlNodes;  /*!< \brief Vector with control nodes*/
   
