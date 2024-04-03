@@ -39,16 +39,19 @@
 class CRadialBasisFunctionInterpolation : public CVolumetricMovement {
 protected:
 
+  vector<CRadialBasisFunctionNode*>** InflationLayer_EdgeNodes;
+  vector<CRadialBasisFunctionNode*>** InflationLayer_WallNodes;
   vector<CRadialBasisFunctionNode*> boundaryLayerNodes;
-  vector<CRadialBasisFunctionNode*> wallNodes;
+  // vector<CRadialBasisFunctionNode*> wallNodes;
+  unsigned long nWallNodes;
+
+  vector<unsigned long>** InflationLayer_InternalNodes;
 
   vector<CRadialBasisFunctionNode*> boundaryNodes;  /*!< \brief Vector with boundary nodes.*/
   vector<unsigned long> internalNodes;              /*!< \brief Vector with internal nodes.*/
-  unsigned long nBoundaryNodes,                     /*!< \brief Number of boundary nodes*/
-  nInternalNodes;                                   /*!< \brief Number of internal nodes*/
   unsigned long nControlNodes;
 
-  vector<CRadialBasisFunctionNode*>* controlNodes;  /*!< \brief Vector with control nodes*/
+  vector<vector<CRadialBasisFunctionNode*>*> controlNodes;  /*!< \brief Vector with control nodes*/
   
   vector<passivedouble> deformationVector;  /*!< \brief Deformation vector.*/
   vector<passivedouble> coefficients;       /*!< \brief Control node interpolation coefficients.*/
@@ -56,6 +59,7 @@ protected:
 
   RADIAL_BASIS kindRBF; /*!< \brief Type of Radial Basis Function.*/
   su2double radius;     /*!< \brief Support radius of compact Radial Basis Function.*/
+
   
 public:
 
@@ -111,8 +115,9 @@ public:
   /*!
   * \brief Selecting internal nodes for the volumetric deformation.
   * \param[in] geometry - Geometrical definition of the problem.
+  * \param[in] config - Definition of the particular problem
   */
-  void SetInternalNodes(CGeometry* geometry);
+  void SetInternalNodes(CGeometry* geometry, CConfig* config);
 
   /*!
   * \brief Solving of the Radial Basis Function interpolation system, yielding the interpolation coefficients
@@ -146,4 +151,8 @@ public:
   }
 
   void GetBL_Deformation(CGeometry* geometry, CConfig* config);
+  
+  su2double GetBL_Thickness(CGeometry* geometry, vector<CRadialBasisFunctionNode*>* boundaryLayerNodes, vector<CRadialBasisFunctionNode*>* wallNodes);
+
+  unsigned long GetnControlNodes();
 };

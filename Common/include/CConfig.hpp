@@ -658,6 +658,7 @@ private:
   bool RBF_DataReduction;            /*!< \brief Determines use of data reduction methods for RBF mesh deformation. */
   su2double RBF_GreedyTolerance;      /*!< \brief Tolerance used in the greedy data reduction for RBF mesh deformation. */
   su2double RBF_GreedyCorrectionFactor;   /*!< \brief Correction factor used in the greedy algorithm for RBF mesh deformation. */
+  bool RBF_BL_Preservation;           /*!< \brief Preservation of boundary layer.*/
   unsigned short FFD_Continuity;     /*!< \brief Surface continuity at the intersection with the FFD */
   unsigned short FFD_CoordSystem;    /*!< \brief Define the coordinates system */
   su2double Deform_ElasticityMod,    /*!< \brief Young's modulus for volume deformation stiffness model */
@@ -1248,6 +1249,18 @@ private:
   string* lookup_names;         /*!< \brief Names of passive look-up variables. */
   string* user_scalar_names;          /*!< \brief Names of the user defined (auxiliary) transported scalars .*/
   string* user_source_names;          /*!< \brief Names of the source terms for the user defined transported scalars. */
+
+  //TODO
+  unsigned short nMarker_BoundaryLayer;
+  string *Marker_BoundaryLayer;
+  unsigned short *Marker_All_BoundaryLayer;   
+  unsigned short *Marker_CfgFile_BoundaryLayer;
+
+  unsigned short nMarker_Wall;
+  string *Marker_Wall;
+  unsigned short *Marker_All_Wall;   
+  unsigned short *Marker_CfgFile_Wall;         
+              
 
   /*!
    * \brief Set the default values of config options not set in the config file using another config object.
@@ -3057,6 +3070,9 @@ public:
    * \return Total number of deformable markers at the boundary.
    */
   unsigned short GetnMarker_Deform_Mesh(void) const { return nMarker_Deform_Mesh; }
+  //todo
+  unsigned short GetnMarker_BoundaryLayer(void) const { return nMarker_BoundaryLayer; }
+  unsigned short GetnMarker_Wall(void) const { return nMarker_Wall; }
 
   /*!
    * \brief Get the total number of markers in which the flow load is computed/employed.
@@ -3502,6 +3518,10 @@ public:
    */
   void SetMarker_All_Deform_Mesh_Internal(unsigned short val_marker, unsigned short val_deform) { Marker_All_Deform_Mesh_Internal[val_marker] = val_deform; }
 
+  //TODO
+  void SetMarker_All_BoundaryLayer(unsigned short val_marker, unsigned short val_deform) { Marker_All_BoundaryLayer[val_marker] = val_deform; }
+  void SetMarker_All_Wall(unsigned short val_marker, unsigned short val_deform) { Marker_All_Wall[val_marker] = val_deform; }
+
 
   /*!
    * \brief Set if a in marker <i>val_marker</i> the flow load will be computed/employed.
@@ -3660,6 +3680,9 @@ public:
    * \return 0 or 1 depending if the marker belongs to the DEFORM_MESH_SYM_PLANE subset.
    */
   unsigned short GetMarker_All_Deform_Mesh_Internal(unsigned short val_marker) const { return Marker_All_Deform_Mesh_Internal[val_marker]; }
+  //TODO
+  unsigned short GetMarker_All_BoundaryLayer(unsigned short val_marker) const { return Marker_All_BoundaryLayer[val_marker]; }
+  unsigned short GetMarker_All_Wall(unsigned short val_marker) const { return Marker_All_Wall[val_marker]; }
 
   /*!
    * \brief Get whether marker <i>val_marker</i> is a Fluid_Load marker
@@ -4421,6 +4444,12 @@ public:
    * \return <code>TRUE</code> means that data reduction is used.
    */
   su2double GetRBF_GreedyCorrectionFactor(void) const { return RBF_GreedyCorrectionFactor; }
+
+  /*!
+  * \brief Determines whether boundary layer height is preserved during deformation
+  * \return <code>TRUE</code> if boundary layer height is preserved; otherwise <code>FALSE</code>.
+  */
+  bool GetBL_Preservation(void) const { return RBF_BL_Preservation; }
 
   /*!
    * \brief Get the kind of SU2 software component.
@@ -6411,6 +6440,9 @@ public:
    * \return DEFORM_MESH_INTERNAL information of the boundary in the config information for the marker <i>val_marker</i>.
    */
   unsigned short GetMarker_CfgFile_Deform_Mesh_Internal(const string& val_marker) const;
+  //TODO
+  unsigned short GetMarker_CfgFile_BoundaryLayer(const string& val_marker) const;
+  unsigned short GetMarker_CfgFile_Wall(const string& val_marker) const;
 
   /*!
    * \brief Get the Fluid_Load information from the config definition for the marker <i>val_marker</i>.
@@ -6772,6 +6804,9 @@ public:
    * \return Internal index for a DEFORM_MESH_SYM_PLANE boundary <i>val_marker</i>.
    */
   unsigned short GetMarker_Deform_Mesh_Internal(const string& val_marker) const;
+  //TODO
+  unsigned short GetMarker_BoundaryLayer(const string& val_marker) const;
+  unsigned short GetMarker_Wall(const string& val_marker) const;
 
   /*!
    * \brief Get a bool for whether the marker is deformed. <i>val_marker</i>.
