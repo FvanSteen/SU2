@@ -41,17 +41,17 @@ protected:
 
   vector<CRadialBasisFunctionNode*>** InflationLayer_EdgeNodes;
   vector<CRadialBasisFunctionNode*>** InflationLayer_WallNodes;
-  vector<CRadialBasisFunctionNode*> boundaryLayerNodes;
   // vector<CRadialBasisFunctionNode*> wallNodes;
   unsigned long nWallNodes;
 
   vector<unsigned long>** InflationLayer_InternalNodes;
 
-  vector<CRadialBasisFunctionNode*> boundaryNodes;  /*!< \brief Vector with boundary nodes.*/
+  
   vector<unsigned long> internalNodes;              /*!< \brief Vector with internal nodes.*/
   unsigned long nControlNodes;
 
   vector<vector<CRadialBasisFunctionNode*>*> controlNodes;  /*!< \brief Vector with control nodes*/
+  vector<CRadialBasisFunctionNode*> boundaryNodes;  /*!< \brief Vector with boundary nodes.*/
   
   vector<passivedouble> deformationVector;  /*!< \brief Deformation vector.*/
   vector<passivedouble> coefficients;       /*!< \brief Control node interpolation coefficients.*/
@@ -59,6 +59,8 @@ protected:
 
   RADIAL_BASIS kindRBF; /*!< \brief Type of Radial Basis Function.*/
   su2double radius;     /*!< \brief Support radius of compact Radial Basis Function.*/
+
+  su2double* bl_thickness;
 
   
 public:
@@ -152,7 +154,9 @@ public:
 
   void GetBL_Deformation(CGeometry* geometry, CConfig* config);
   
-  su2double GetBL_Thickness(CGeometry* geometry, vector<CRadialBasisFunctionNode*>* boundaryLayerNodes, vector<CRadialBasisFunctionNode*>* wallNodes);
+  void GetBL_Thickness(CGeometry* geometry, CConfig* config);
 
   unsigned long GetnControlNodes();
+
+  void UpdateInflationLayerCoords(CGeometry* geometry);
 };
