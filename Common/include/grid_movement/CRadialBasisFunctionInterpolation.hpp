@@ -29,6 +29,7 @@
 #include "CVolumetricMovement.hpp"
 #include "CRadialBasisFunctionNode.hpp"
 #include "../../include/toolboxes/CSymmetricMatrix.hpp"
+#include "../../include/adt/CADTPointsOnlyClass.hpp"
 
 /*!
  * \class CLinearElasticity
@@ -158,5 +159,6 @@ public:
 
   unsigned long GetnControlNodes();
 
-  void UpdateInflationLayerCoords(CGeometry* geometry);
+  void UpdateInflationLayerCoords(CGeometry* geometry, unsigned short iMarker);
+
 };
