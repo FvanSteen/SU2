@@ -603,48 +603,36 @@ void CRadialBasisFunctionInterpolation::GetBL_Deformation(CGeometry* geometry, C
 
 
     //looping through inflation layer edge nodes
-    for(iNode = 0; iNode < InflationLayer_EdgeNodes[iMarker]->size(); iNode++){
-      cout << (*InflationLayer_EdgeNodes[iMarker])[iNode]->GetIndex() << endl;
-      cout << "new coord: " << new_coord[iDim][0] << '\t' << new_coord[iDim][1] << "\t" <<  new_coord[iDim][2]  << endl;
+    for(iNode = 0; iNode < InflationLayer_EdgeNodes[iMarker]->size(); iNode++){      
       //determine nearest wall node
       WallADT.DetermineNearestNode(new_coord[iNode], dist, pointID, rankID);
-      cout << "nearest node: " << (*InflationLayer_WallNodes[iMarker])[pointID]->GetIndex() << endl;
-      cout << "coord: " << geometry->nodes->GetCoord((*InflationLayer_WallNodes[iMarker])[pointID]->GetIndex())[0] << '\t' << geometry->nodes->GetCoord((*InflationLayer_WallNodes[iMarker])[pointID]->GetIndex())[1] << "\t" << geometry->nodes->GetCoord((*InflationLayer_WallNodes[iMarker])[pointID]->GetIndex())[2] <<  endl;
+      
       //get normal and make it a unit vector
       auto normal = geometry->vertex[(*InflationLayer_WallNodes[iMarker])[pointID]->GetMarker()][(*InflationLayer_WallNodes[iMarker])[pointID]->GetVertex()]->GetNormal(); 
     
       auto normal_length = GeometryToolbox::Norm(nDim, normal);
 
-      cout << "normal: ";
+ 
       for(iDim = 0; iDim < nDim; iDim++){
         normal[iDim] = normal[iDim]/normal_length;
-        cout << normal[iDim] << '\t';
       }
-
-      cout << endl;
 
       // find distance of freely displaced edge node to nearest wall node. 
       GeometryToolbox::Distance(nDim, new_coord[iNode], geometry->nodes->GetCoord((*InflationLayer_WallNodes[iMarker])[pointID]->GetIndex()), dist_vec);
-      cout << dist_vec[0] << '\t' << dist_vec[1] << '\t' << dist_vec[2] << endl;
+
       // dot product of normal and distance vector
       auto dp = GeometryToolbox::DotProduct(nDim, normal, dist_vec);
-      cout << "dot product: " << dp << endl;
+
       // required additional inflation layer thickness
       added_thickness =  bl_thickness[iMarker] - dp;
-      cout << "required bl thickness: " << bl_thickness[iMarker] << endl; 
-      cout << "added thickness: " << added_thickness << endl;
+
       // required variation in coords to maintain inflation layer height
       su2double var_coord[nDim];
       for(iDim = 0; iDim < nDim; iDim++){
         new_coord[iNode][iDim] += added_thickness * normal[iDim];
         var_coord[iDim] = new_coord[iNode][iDim] - geometry->nodes->GetCoord((*InflationLayer_EdgeNodes[iMarker])[iNode]->GetIndex())[iDim];
       }
-      cout << "updated coord: " << new_coord[iNode][0] << '\t' << new_coord[iNode][1] << "\t" << new_coord[iNode][2] << endl;
-      cout << "var coord: " << var_coord[0] << '\t' << var_coord[1] << "\t" << var_coord[2] << endl;
 
-      GeometryToolbox::Distance(nDim, new_coord[iNode], geometry->nodes->GetCoord((*InflationLayer_WallNodes[iMarker])[pointID]->GetIndex()), dist_vec);
-      dp = GeometryToolbox::DotProduct(nDim, normal, dist_vec);
-      cout << "check dot product: " << dp << endl;
       //TODO include consideration for number of deformation steps
       geometry->vertex[(*InflationLayer_EdgeNodes[iMarker])[iNode]->GetMarker()][(*InflationLayer_EdgeNodes[iMarker])[iNode]->GetVertex()]->SetVarCoord(var_coord); 
 
