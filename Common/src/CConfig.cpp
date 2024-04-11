@@ -838,7 +838,8 @@ void CConfig::SetPointersNull() {
   Marker_CfgFile_Deform_Mesh   = nullptr;  Marker_All_Deform_Mesh   = nullptr;
   Marker_CfgFile_Deform_Mesh_Sym_Plane   = nullptr;  Marker_All_Deform_Mesh_Sym_Plane   = nullptr;
   Marker_CfgFile_Deform_Mesh_Internal   = nullptr;  Marker_All_Deform_Mesh_Internal   = nullptr;
-  Marker_CfgFile_BoundaryLayer = nullptr; Marker_All_BoundaryLayer = nullptr;   Marker_All_Wall = nullptr; //TODO
+  Marker_CfgFile_BoundaryLayer = nullptr; Marker_All_BoundaryLayer = nullptr; //TODO one missing? 
+  Marker_All_Wall = nullptr; Marker_CfgFile_MeshPeriodic = nullptr; Marker_All_MeshPeriodic = nullptr;//TODO
   Marker_CfgFile_Fluid_Load    = nullptr;  Marker_All_Fluid_Load    = nullptr;
   Marker_CfgFile_SobolevBC     = nullptr;  Marker_All_SobolevBC     = nullptr;
 
@@ -879,7 +880,7 @@ void CConfig::SetPointersNull() {
   Marker_ZoneInterface        = nullptr;    Marker_All_ZoneInterface    = nullptr;    Marker_Riemann             = nullptr;
   Marker_Fluid_InterfaceBound = nullptr;    Marker_CHTInterface         = nullptr;    Marker_Damper              = nullptr;
   Marker_Emissivity           = nullptr;    Marker_HeatTransfer         = nullptr;
-  Marker_BoundaryLayer        = nullptr;    Marker_Wall                 = nullptr;//TODO
+  Marker_BoundaryLayer        = nullptr;    Marker_Wall                 = nullptr;    Marker_MeshPeriodic = nullptr;//TODO
     /*--- Boundary Condition settings ---*/
 
   Isothermal_Temperature = nullptr;    HeatTransfer_Coeff     = nullptr;    HeatTransfer_WallTemp  = nullptr;
@@ -2966,6 +2967,7 @@ void CConfig::SetConfig_Options() {
 
   addStringListOption("MARKER_DEFORM_MESH_BL", nMarker_BoundaryLayer, Marker_BoundaryLayer); //TODO
   addStringListOption("MARKER_DEFORM_MESH_WALL", nMarker_Wall, Marker_Wall); //TODO
+  addStringListOption("MARKER_DEFORM_MESH_PERIODIC", nMarker_MeshPeriodic, Marker_MeshPeriodic); //TODO
   /* END_CONFIG_OPTIONS */
 
 }
@@ -5582,7 +5584,7 @@ void CConfig::SetMarkers(SU2_COMPONENT val_software) {
   iMarker_DV, iMarker_Moving, iMarker_SobolevBC, iMarker_PyCustom, iMarker_Supersonic_Inlet, iMarker_Supersonic_Outlet,
   iMarker_Clamped, iMarker_ZoneInterface, iMarker_CHTInterface, iMarker_Load_Dir, iMarker_Disp_Dir,
   iMarker_Fluid_Load, iMarker_Deform_Mesh, iMarker_Deform_Mesh_Sym_Plane, iMarker_Deform_Mesh_Internal,
-  iMarker_BoundaryLayer, iMarker_Wall, //TODO
+  iMarker_BoundaryLayer, iMarker_Wall, iMarker_MeshPeriodic,//TODO
   iMarker_ActDiskInlet, iMarker_ActDiskOutlet,
   iMarker_Turbomachinery, iMarker_MixingPlaneInterface;
 
@@ -5628,6 +5630,7 @@ void CConfig::SetMarkers(SU2_COMPONENT val_software) {
   Marker_All_Deform_Mesh_Sym_Plane = new unsigned short[nMarker_All] (); //Store wheter the boundary will follow the deformation
   Marker_All_Deform_Mesh_Internal = new unsigned short[nMarker_All] (); //Store wheter the boundary will follow the deformation
   Marker_All_BoundaryLayer  = new unsigned short[nMarker_All] (); //TODO
+  Marker_All_MeshPeriodic  = new unsigned short[nMarker_All] (); //TODO
   Marker_All_Wall           = new unsigned short[nMarker_All] ();
   Marker_All_Fluid_Load     = new unsigned short[nMarker_All] (); // Store whether the boundary computes/applies fluid loads.
   Marker_All_PyCustom       = new unsigned short[nMarker_All] (); // Store whether the boundary is Python customizable.
@@ -5657,6 +5660,7 @@ void CConfig::SetMarkers(SU2_COMPONENT val_software) {
   Marker_CfgFile_Deform_Mesh_Sym_Plane= new unsigned short[nMarker_CfgFile] ();
   Marker_CfgFile_Deform_Mesh_Internal = new unsigned short[nMarker_CfgFile] ();
   Marker_CfgFile_BoundaryLayer        = new unsigned short[nMarker_CfgFile] (); //TODO
+  Marker_CfgFile_MeshPeriodic        = new unsigned short[nMarker_CfgFile] (); 
   Marker_CfgFile_Wall                 = new unsigned short[nMarker_CfgFile] ();
   Marker_CfgFile_Fluid_Load           = new unsigned short[nMarker_CfgFile] ();
   Marker_CfgFile_PerBound             = new unsigned short[nMarker_CfgFile] ();
@@ -6091,6 +6095,12 @@ void CConfig::SetMarkers(SU2_COMPONENT val_software) {
       if (Marker_CfgFile_TagBound[iMarker_CfgFile] == Marker_Wall[iMarker_Wall])
         Marker_CfgFile_Wall[iMarker_CfgFile] = YES; 
   }
+  for (iMarker_CfgFile = 0; iMarker_CfgFile < nMarker_CfgFile; iMarker_CfgFile++) {
+    Marker_CfgFile_MeshPeriodic[iMarker_CfgFile] = NO;
+    for (iMarker_MeshPeriodic = 0; iMarker_MeshPeriodic < nMarker_MeshPeriodic; iMarker_MeshPeriodic++)
+      if (Marker_CfgFile_TagBound[iMarker_CfgFile] == Marker_MeshPeriodic[iMarker_MeshPeriodic])
+        Marker_CfgFile_MeshPeriodic[iMarker_CfgFile] = YES; 
+  }
 
   for (iMarker_CfgFile = 0; iMarker_CfgFile < nMarker_CfgFile; iMarker_CfgFile++) {
     Marker_CfgFile_Fluid_Load[iMarker_CfgFile] = NO;
@@ -6121,7 +6131,7 @@ void CConfig::SetOutput(SU2_COMPONENT val_software, unsigned short val_izone) {
   iMarker_SymWall, iMarker_PerBound, iMarker_NearFieldBound,
   iMarker_Fluid_InterfaceBound, iMarker_Inlet, iMarker_Riemann,
   iMarker_Deform_Mesh, iMarker_Deform_Mesh_Sym_Plane, iMarker_Deform_Mesh_Internal,//TODO 
-  iMarker_BoundaryLayer, iMarker_Wall,
+  iMarker_BoundaryLayer, iMarker_Wall, iMarker_MeshPeriodic,
   iMarker_Fluid_Load, iMarker_Smoluchowski_Maxwell, iWall_Catalytic,
   iMarker_Giles, iMarker_Outlet, iMarker_Isothermal, iMarker_HeatFlux, iMarker_HeatTransfer,
   iMarker_EngineInflow, iMarker_EngineExhaust, iMarker_Displacement, iMarker_Damper,
@@ -7433,6 +7443,14 @@ void CConfig::SetOutput(SU2_COMPONENT val_software, unsigned short val_izone) {
     }
     BoundaryTable.PrintFooter();
   }
+  if(nMarker_MeshPeriodic != 0) {
+    BoundaryTable << "Periodic boundary";
+    for (iMarker_MeshPeriodic = 0; iMarker_MeshPeriodic < nMarker_MeshPeriodic; iMarker_MeshPeriodic++) {
+      BoundaryTable << Marker_MeshPeriodic[iMarker_MeshPeriodic];
+      if (iMarker_MeshPeriodic < nMarker_MeshPeriodic-1)  BoundaryTable << " ";
+    }
+    BoundaryTable.PrintFooter();
+  }
 
   if (nMarker_Fluid_Load != 0) {
     BoundaryTable << "Fluid loads boundary";
@@ -8007,6 +8025,12 @@ unsigned short CConfig::GetMarker_CfgFile_Wall(const string& val_marker) const {
     if (Marker_CfgFile_TagBound[iMarker_CfgFile] == val_marker) break;
   return Marker_CfgFile_Wall[iMarker_CfgFile];
 }
+unsigned short CConfig::GetMarker_CfgFile_MeshPeriodic(const string& val_marker) const {
+  unsigned short iMarker_CfgFile;
+  for (iMarker_CfgFile = 0; iMarker_CfgFile < nMarker_CfgFile; iMarker_CfgFile++)
+    if (Marker_CfgFile_TagBound[iMarker_CfgFile] == val_marker) break;
+  return Marker_CfgFile_MeshPeriodic[iMarker_CfgFile];
+}
 
 unsigned short CConfig::GetMarker_CfgFile_Fluid_Load(const string& val_marker) const {
   unsigned short iMarker_CfgFile;
@@ -8160,6 +8184,8 @@ CConfig::~CConfig() {
   delete[] Marker_All_BoundaryLayer;
   delete[] Marker_CfgFile_Wall;
   delete[] Marker_All_Wall;
+  delete[] Marker_CfgFile_MeshPeriodic;
+  delete[] Marker_All_MeshPeriodic;
 
   delete[] Marker_CfgFile_Fluid_Load;
   delete[] Marker_All_Fluid_Load;
@@ -8977,6 +9003,15 @@ unsigned short CConfig::GetMarker_Wall(const string& val_marker) const {
   /*--- Find the marker for this internal boundary. ---*/
   for (iMarker = 0; iMarker < nMarker_Wall; iMarker++)
     if (Marker_Wall[iMarker] == val_marker) break;
+  return iMarker;
+}
+
+unsigned short CConfig::GetMarker_MeshPeriodic(const string& val_marker) const {
+  unsigned short iMarker;
+
+  /*--- Find the marker for this internal boundary. ---*/
+  for (iMarker = 0; iMarker < nMarker_MeshPeriodic; iMarker++)
+    if (Marker_MeshPeriodic[iMarker] == val_marker) break;
   return iMarker;
 }
 

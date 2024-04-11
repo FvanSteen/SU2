@@ -31,6 +31,7 @@
 #include "../../include/adt/CADTPointsOnlyClass.hpp"
 
 
+
 CRadialBasisFunctionInterpolation::CRadialBasisFunctionInterpolation(CGeometry* geometry, CConfig* config) : CVolumetricMovement(geometry) {
   /*--- Retrieve type of RBF and if applicable its support radius ---*/
   kindRBF =  config->GetKindRadialBasisFunction();
@@ -63,7 +64,6 @@ void CRadialBasisFunctionInterpolation::SetVolume_Deformation(CGeometry* geometr
   }
 
   SetInternalNodes(geometry, config);
-
 
   
   
@@ -129,6 +129,7 @@ void CRadialBasisFunctionInterpolation::SetControlNodes(CGeometry* geometry, CCo
   unsigned short iMarker, iMarker_Edge = 0, iMarker_Wall = 0; 
   unsigned long iVertex; 
 
+  vector<unsigned long> periodic_nodes;
 
   // setting size of the arrays containing the pointers to the vectors with CRadialBasisFunctionNode pointers
   if(config->GetBL_Preservation()){
@@ -142,10 +143,11 @@ void CRadialBasisFunctionInterpolation::SetControlNodes(CGeometry* geometry, CCo
   nWallNodes = 0;
 
   for(iMarker = 0; iMarker < config->GetnMarker_All(); iMarker++){
-    if(!config->GetMarker_All_Deform_Mesh_Internal(iMarker) && !config->GetMarker_All_BoundaryLayer(iMarker) && !config->GetMarker_All_Wall(iMarker)){
+    if(!config->GetMarker_All_Deform_Mesh_Internal(iMarker) && !config->GetMarker_All_BoundaryLayer(iMarker) && !config->GetMarker_All_Wall(iMarker) && !config->GetMarker_All_PerBound(iMarker)){
       nBoundNodes += geometry->nVertex[iMarker];
     }
   }
+
 
   /*--- Vector with boundary nodes has at most nBoundNodes ---*/
   boundaryNodes.resize(nBoundNodes);
@@ -154,9 +156,8 @@ void CRadialBasisFunctionInterpolation::SetControlNodes(CGeometry* geometry, CCo
   /*--- Storing of the global, marker and vertex indices ---*/
   unsigned long count = 0, ii = 0, jj = 0;
   for(iMarker = 0; iMarker < config->GetnMarker_All(); iMarker++){
-    
     // first test whether it is a boundary that can be ignored
-    if(!config->GetMarker_All_Deform_Mesh_Internal(iMarker)){
+    if(!config->GetMarker_All_Deform_Mesh_Internal(iMarker) && !config->GetMarker_All_PerBound(iMarker)){
       
       if(config->GetMarker_All_Wall(iMarker)){ //TODO this if statement is only possible if IL preservation is enabled
         InflationLayer_WallNodes[iMarker_Wall] = new vector <CRadialBasisFunctionNode*>(geometry->nVertex[iMarker]);
@@ -180,14 +181,38 @@ void CRadialBasisFunctionInterpolation::SetControlNodes(CGeometry* geometry, CCo
       }
       else{
         for(iVertex = 0; iVertex < geometry->nVertex[iMarker]; iVertex++){
-          boundaryNodes[count++] = new CRadialBasisFunctionNode(geometry, iMarker, iVertex);  
+          
+          if(geometry->nodes->GetPeriodicBoundary(geometry->vertex[iMarker][iVertex]->GetNode())){
+          //   geometry->nodes->SetPeriodicBoundary(geometry->vertex[iMarker][iVertex]->GetNode(), false); //TODO might not be the best way
+            // cout << iMarker << '\t' << iVertex << '\t' << geometry->vertex[iMarker][iVertex]->GetNode()  << "\t" << geometry->vertex[iMarker][iVertex]->GetDonorPoint() << endl;            
+            periodic_nodes.push_back(geometry->vertex[iMarker][iVertex]->GetNode());
+          }else{
+            boundaryNodes[count++] = new CRadialBasisFunctionNode(geometry, iMarker, iVertex);
+          }
+    //       if(config->GetMarker_All_PerBound(iMarker)){
+    //   cout << iMarker << '\t' << config->GetMarker_Periodic_Donor(config->GetMarker_All_TagBound(iMarker)) << endl;
+    // }
         }
       }
-
-
     }  
   }
 
+  vector<unsigned short> donor_markers;
+  boundaryNodes.resize(nBoundNodes-periodic_nodes.size()/2);
+
+  for(iMarker = 0; iMarker < config->GetnMarker_All(); iMarker++){
+    if(config->GetMarker_All_PerBound(iMarker)){
+      if(donor_markers.size() == 0 || donor_markers[donor_markers.size()-1] < config->GetMarker_Periodic_Donor(config->GetMarker_All_TagBound(iMarker))){
+        donor_markers.push_back(config->GetMarker_Periodic_Donor(config->GetMarker_All_TagBound(iMarker)));
+        for(iVertex = 0; iVertex < geometry->GetnVertex(iMarker); iVertex++){
+          if(std::find(periodic_nodes.begin(), periodic_nodes.end(), geometry->vertex[iMarker][iVertex]->GetNode()) != periodic_nodes.end()){
+            boundaryNodes[count++] = new CRadialBasisFunctionNode(geometry, iMarker, iVertex);
+            geometry->nodes->SetPeriodicBoundary(geometry->vertex[iMarker][iVertex]->GetNode(), false);
+          }
+        }
+      }
+    }
+  }
 
   /*--- Sorting of the boundary nodes based on global index ---*/
   sort(boundaryNodes.begin(), boundaryNodes.end(), Compare);
@@ -213,10 +238,10 @@ void CRadialBasisFunctionInterpolation::SetControlNodes(CGeometry* geometry, CCo
   //   cout << x->GetIndex() << endl;
   // }
 
-  // cout << "boundary nodes: " << endl;
-  // for(auto x : boundaryNodes){
-  //   cout << x->GetIndex() << endl;
-  // }
+  cout << "boundary nodes: " << endl;
+  for(auto x : boundaryNodes){
+    cout << x->GetIndex() << endl;
+  }
 
   // exit(0);
 
@@ -242,9 +267,9 @@ void CRadialBasisFunctionInterpolation::SetInterpolationMatrix(CGeometry* geomet
 
       /*--- Looping over control nodes ---*/
       for(jNode = iNode; jNode < controlNodes[iPtr]->size(); jNode++){
-
-        auto dist = GeometryToolbox::Distance(nDim, geometry->nodes->GetCoord((*controlNodes[iPtr])[iNode]->GetIndex()), geometry->nodes->GetCoord((*controlNodes[iPtr])[jNode]->GetIndex()));
-
+        auto dist = GetDistance(config, geometry->nodes->GetCoord((*controlNodes[iPtr])[iNode]->GetIndex()), geometry->nodes->GetCoord((*controlNodes[iPtr])[jNode]->GetIndex()));
+        // auto dist = GeometryToolbox::Distance(nDim, geometry->nodes->GetCoord((*controlNodes[iPtr])[iNode]->GetIndex()), geometry->nodes->GetCoord((*controlNodes[iPtr])[jNode]->GetIndex()));
+        //TODO Add function to make distance periodic
         interpMat(start + iNode, start + jNode) = SU2_TYPE::GetValue(CRadialBasisFunction::Get_RadialBasisValue(kindRBF, radius, dist));
       }
     }
@@ -278,12 +303,12 @@ void CRadialBasisFunctionInterpolation::SetInterpolationMatrix(CGeometry* geomet
   } 
 
 
-  // for(auto i = 0; i <  GetnControlNodes(); i++){
-  //   for(auto j = 0; j < GetnControlNodes(); j++){
-  //     cout << interpMat(i,j) << '\t';
-  //   }
-  //   cout << endl;
-  // } 
+  for(auto i = 0; i <  GetnControlNodes(); i++){
+    for(auto j = 0; j < GetnControlNodes(); j++){
+      cout << interpMat(i,j) << '\t';
+    }
+    cout << endl;
+  } 
 
   // for(iPtr = 0; iPtr < controlNodes.size(); iPtr++){
 
@@ -409,7 +434,7 @@ void CRadialBasisFunctionInterpolation::SetInternalNodes(CGeometry* geometry, CC
   unsigned short nearest_marker; unsigned long nearest_elem;
 
   for(iNode = 0; iNode < geometry->GetnPoint(); iNode++){
-
+    
     // if not part of boundary
     if(!geometry->nodes->GetBoundary(iNode)){
       
@@ -427,9 +452,11 @@ void CRadialBasisFunctionInterpolation::SetInternalNodes(CGeometry* geometry, CC
         internalNodes[idx_cnt++] = iNode;
       }
     }
+    else if(geometry->nodes->GetPeriodicBoundary(iNode)){
+      internalNodes[idx_cnt++] = iNode;
+    }
   }
-
-
+  
 
   // setting to actual size
   internalNodes.resize(idx_cnt);
@@ -443,9 +470,9 @@ void CRadialBasisFunctionInterpolation::SetInternalNodes(CGeometry* geometry, CC
   // }
 
   // file << "\ninternal nodes: \n";
-  // for (auto x : internalNodes){
-  //   file << x << ", ";
-  // }
+  for (auto x : internalNodes){
+    cout << x << endl;;
+  }
 
 
 }
@@ -487,9 +514,9 @@ void CRadialBasisFunctionInterpolation::UpdateGridCoord(CGeometry* geometry, CCo
       for(cNode = 0; cNode < controlNodes[cPtr]->size(); cNode++){
         // cout << "internal: " << internalNodes[iNode] << ", control:" << (*controlNodes[cPtr])[cNode]->GetIndex() << endl;
         /*--- Determine distance between considered internal and control node ---*/
-        auto dist = GeometryToolbox::Distance(nDim, geometry->nodes->GetCoord((*controlNodes[cPtr])[cNode]->GetIndex()), geometry->nodes->GetCoord(internalNodes[iNode]));
+        // auto dist = GeometryToolbox::Distance(nDim, geometry->nodes->GetCoord((*controlNodes[cPtr])[cNode]->GetIndex()), geometry->nodes->GetCoord(internalNodes[iNode]));
         // auto dist = GeometryToolbox::Distance(nDim, geometry->nodes->GetCoord((*controlNodes[cPtr])[cNode]->GetIndex()), geometry->nodes->GetCoord((*InflationLayer_InternalNodes[0])[iNode]));
-        
+        auto dist = GetDistance(config, geometry->nodes->GetCoord((*controlNodes[cPtr])[cNode]->GetIndex()), geometry->nodes->GetCoord(internalNodes[iNode]));
         /*--- Evaluate RBF based on distance ---*/
         auto rbf = SU2_TYPE::GetValue(CRadialBasisFunction::Get_RadialBasisValue(kindRBF, radius, dist));
         // cout << "distance: " << dist << ", rbf val: " << rbf << endl;
@@ -771,3 +798,28 @@ void CRadialBasisFunctionInterpolation::UpdateInflationLayerCoords(CGeometry* ge
   }  
 }
 
+su2double CRadialBasisFunctionInterpolation::GetDistance(CConfig* config, const su2double* a, const su2double*b){
+  
+  
+  //TODO automatically find the periodic length and direction
+  // if(config->GetnMarker_Periodic() != 0 ){
+  //   config->GetPeriodicTranslation()
+  // }
+  su2double d(0);
+  if(config->GetnMarker_Periodic() == 0){
+    d = GeometryToolbox::Distance(nDim, a, b);
+  }else{
+    su2double lambda = 1.0;
+    unsigned short per_dir = 1;
+    for(unsigned short iDim = 0; iDim < nDim; iDim++){
+      if(iDim == per_dir){
+        d += pow( lambda/PI_NUMBER * sin( (a[iDim] - b[iDim]) * PI_NUMBER / lambda), 2);
+      }else{
+        d += pow(a[iDim] - b[iDim], 2);
+      }
+    }
+    d = sqrt(d);
+  }
+
+  return d;
+}

@@ -161,4 +161,6 @@ public:
 
   void UpdateInflationLayerCoords(CGeometry* geometry, unsigned short iMarker);
 
+  su2double GetDistance(CConfig* config, const su2double* a, const su2double*b);
+
 };

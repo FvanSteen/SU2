@@ -197,6 +197,11 @@ void CDeformationDriver::InitializeGeometry() {
 
     geometry_container[iZone][INST_0][MESH_0]->PreprocessP2PComms(geometry_container[iZone][INST_0][MESH_0],
                                                                   config_container[iZone]);
+
+    
+    for (unsigned short iPeriodic = 1; iPeriodic <= config_container[iZone]->GetnMarker_Periodic()/2; iPeriodic++) {
+      geometry_container[iZone][INST_0][MESH_0]->MatchPeriodic(config_container[iZone],iPeriodic);
+    }
   }
 
   /*--- Get the number of dimensions. ---*/
