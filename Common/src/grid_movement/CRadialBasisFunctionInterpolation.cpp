@@ -80,6 +80,7 @@ void CRadialBasisFunctionInterpolation::SetVolume_Deformation(CGeometry* geometr
       GetBL_Deformation(geometry, config);
     }
 
+
     /*--- Obtaining the interpolation coefficients of the control nodes ---*/
     GetInterpolationCoefficients(geometry, config, iNonlinear_Iter);
     
@@ -126,7 +127,7 @@ void CRadialBasisFunctionInterpolation::GetInterpolationCoefficients(CGeometry* 
 
 
 void CRadialBasisFunctionInterpolation::SetControlNodes(CGeometry* geometry, CConfig* config){
-  unsigned short iMarker, iMarker_Edge = 0, iMarker_Wall = 0; 
+  unsigned short iMarker, iMarker_Edge = 0, iMarker_Wall = 0, iMarkerSlide = 0; 
   unsigned long iVertex; 
 
   vector<unsigned long> periodic_nodes;
@@ -137,13 +138,15 @@ void CRadialBasisFunctionInterpolation::SetControlNodes(CGeometry* geometry, CCo
     InflationLayer_WallNodes = new vector<CRadialBasisFunctionNode*>*[config->GetnMarker_Wall()];
   }
   
+  //TODO for the sliding edge nodes
+  SlidingEdgeNodes = new vector<CRadialBasisFunctionNode*>*[config->GetnMarker_MeshSliding()];
 
   /*--- Total number of boundary nodes (including duplicates of shared boundaries) ---*/
   unsigned long nBoundNodes = 0;
   nWallNodes = 0;
 
   for(iMarker = 0; iMarker < config->GetnMarker_All(); iMarker++){
-    if(!config->GetMarker_All_Deform_Mesh_Internal(iMarker) && !config->GetMarker_All_BoundaryLayer(iMarker) && !config->GetMarker_All_Wall(iMarker) && !config->GetMarker_All_PerBound(iMarker)){
+    if(!config->GetMarker_All_Deform_Mesh_Internal(iMarker) && !config->GetMarker_All_BoundaryLayer(iMarker) && !config->GetMarker_All_Wall(iMarker) && !config->GetMarker_All_PerBound(iMarker) && !config->GetMarker_All_MeshSliding(iMarker)){
       nBoundNodes += geometry->nVertex[iMarker];
     }
   }
@@ -179,9 +182,29 @@ void CRadialBasisFunctionInterpolation::SetControlNodes(CGeometry* geometry, CCo
 
         iMarker_Edge++;
       }
+
+      else if(config->GetMarker_All_MeshSliding(iMarker)){
+        SlidingEdgeNodes[iMarkerSlide] = new vector <CRadialBasisFunctionNode*>;
+        for(iVertex = 0; iVertex < geometry->nVertex[iMarker]; iVertex++){
+          unsigned short nVertex = 0;
+          for(unsigned short i = 0; i < config->GetnMarker_All(); i++){
+            if(geometry->nodes->GetVertex(geometry->vertex[iMarker][iVertex]->GetNode(), i) != -1){
+              nVertex++;
+            }
+          }
+          if(nVertex > 1){
+            boundaryNodes.push_back(new CRadialBasisFunctionNode(geometry, iMarker, iVertex));
+          }else{
+            SlidingEdgeNodes[iMarkerSlide]->push_back(new CRadialBasisFunctionNode(geometry, iMarker, iVertex));
+          }
+        }
+        iMarkerSlide++;
+        
+      }
+
       else{
         for(iVertex = 0; iVertex < geometry->nVertex[iMarker]; iVertex++){
-          
+
           if(geometry->nodes->GetPeriodicBoundary(geometry->vertex[iMarker][iVertex]->GetNode())){
           //   geometry->nodes->SetPeriodicBoundary(geometry->vertex[iMarker][iVertex]->GetNode(), false); //TODO might not be the best way
             // cout << iMarker << '\t' << iVertex << '\t' << geometry->vertex[iMarker][iVertex]->GetNode()  << "\t" << geometry->vertex[iMarker][iVertex]->GetDonorPoint() << endl;            
@@ -196,6 +219,8 @@ void CRadialBasisFunctionInterpolation::SetControlNodes(CGeometry* geometry, CCo
       }
     }  
   }
+
+ 
 
   vector<unsigned short> donor_markers;
   boundaryNodes.resize(nBoundNodes-periodic_nodes.size()/2);
@@ -238,11 +263,19 @@ void CRadialBasisFunctionInterpolation::SetControlNodes(CGeometry* geometry, CCo
   //   cout << x->GetIndex() << endl;
   // }
 
-  cout << "boundary nodes: " << endl;
-  for(auto x : boundaryNodes){
-    cout << x->GetIndex() << endl;
-  }
+  // cout << "boundary nodes: " << endl;
+  // for(auto x : boundaryNodes){
+  //   cout << x->GetIndex() << endl;
+  // }
 
+  // cout << "sliding edge nodes: " << endl;
+  // for(auto i = 0; i < config->GetnMarker_MeshSliding(); i++){
+  //   for(auto x : (*SlidingEdgeNodes[i])){
+  //   cout << x->GetIndex() << endl;
+  // }
+
+  // }
+  
   // exit(0);
 
   
@@ -823,3 +856,4 @@ su2double CRadialBasisFunctionInterpolation::GetDistance(CConfig* config, const 
 
   return d;
 }
+

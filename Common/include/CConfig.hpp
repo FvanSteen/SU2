@@ -1256,10 +1256,10 @@ private:
   unsigned short *Marker_All_BoundaryLayer;   
   unsigned short *Marker_CfgFile_BoundaryLayer;
   
-  unsigned short nMarker_MeshPeriodic;
-  string *Marker_MeshPeriodic;
-  unsigned short *Marker_All_MeshPeriodic;   
-  unsigned short *Marker_CfgFile_MeshPeriodic;
+  unsigned short nMarker_MeshSliding;
+  string *Marker_MeshSliding;
+  unsigned short *Marker_All_MeshSliding;   
+  unsigned short *Marker_CfgFile_MeshSliding;
   
 
   unsigned short nMarker_Wall;
@@ -3079,7 +3079,7 @@ public:
   //todo
   unsigned short GetnMarker_BoundaryLayer(void) const { return nMarker_BoundaryLayer; }
   unsigned short GetnMarker_Wall(void) const { return nMarker_Wall; }
-  unsigned short GetnMarker_MeshPeriodic(void) const {return nMarker_MeshPeriodic; }
+  unsigned short GetnMarker_MeshSliding(void) const {return nMarker_MeshSliding; }
 
   /*!
    * \brief Get the total number of markers in which the flow load is computed/employed.
@@ -3528,7 +3528,7 @@ public:
   //TODO
   void SetMarker_All_BoundaryLayer(unsigned short val_marker, unsigned short val_deform) { Marker_All_BoundaryLayer[val_marker] = val_deform; }
   void SetMarker_All_Wall(unsigned short val_marker, unsigned short val_deform) { Marker_All_Wall[val_marker] = val_deform; }
-  void SetMarker_All_MeshPeriodic(unsigned short val_marker, unsigned short val_deform) { Marker_All_MeshPeriodic[val_marker] = val_deform; }
+  void SetMarker_All_MeshSliding(unsigned short val_marker, unsigned short val_deform) { Marker_All_MeshSliding[val_marker] = val_deform; }
 
 
   /*!
@@ -3691,7 +3691,7 @@ public:
   //TODO
   unsigned short GetMarker_All_BoundaryLayer(unsigned short val_marker) const { return Marker_All_BoundaryLayer[val_marker]; }
   unsigned short GetMarker_All_Wall(unsigned short val_marker) const { return Marker_All_Wall[val_marker]; }
-  unsigned short GetMarker_All_MeshPeriodic(unsigned short val_marker) const { return Marker_All_MeshPeriodic[val_marker]; }
+  unsigned short GetMarker_All_MeshSliding(unsigned short val_marker) const { return Marker_All_MeshSliding[val_marker]; }
 
   /*!
    * \brief Get whether marker <i>val_marker</i> is a Fluid_Load marker
@@ -6452,7 +6452,7 @@ public:
   //TODO
   unsigned short GetMarker_CfgFile_BoundaryLayer(const string& val_marker) const;
   unsigned short GetMarker_CfgFile_Wall(const string& val_marker) const;
-  unsigned short GetMarker_CfgFile_MeshPeriodic(const string& val_marker) const;
+  unsigned short GetMarker_CfgFile_MeshSliding(const string& val_marker) const;
 
 
   /*!
@@ -6818,7 +6818,7 @@ public:
   //TODO
   unsigned short GetMarker_BoundaryLayer(const string& val_marker) const;
   unsigned short GetMarker_Wall(const string& val_marker) const;
-  unsigned short GetMarker_MeshPeriodic(const string& val_marker) const;
+  unsigned short GetMarker_MeshSliding(const string& val_marker) const;
 
   /*!
    * \brief Get a bool for whether the marker is deformed. <i>val_marker</i>.

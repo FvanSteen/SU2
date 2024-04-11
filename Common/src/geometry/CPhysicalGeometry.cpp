@@ -3367,7 +3367,7 @@ void CPhysicalGeometry::SetBoundaries(CConfig* config) {
       config->SetMarker_All_Deform_Mesh_Sym_Plane(iMarker, config->GetMarker_CfgFile_Deform_Mesh_Sym_Plane(Marker_Tag));
       config->SetMarker_All_Deform_Mesh_Internal(iMarker, config->GetMarker_CfgFile_Deform_Mesh_Internal(Marker_Tag));
       config->SetMarker_All_BoundaryLayer(iMarker, config->GetMarker_CfgFile_BoundaryLayer(Marker_Tag));//TODO
-      config->SetMarker_All_MeshPeriodic(iMarker, config->GetMarker_CfgFile_MeshPeriodic(Marker_Tag));
+      config->SetMarker_All_MeshSliding(iMarker, config->GetMarker_CfgFile_MeshSliding(Marker_Tag));
       config->SetMarker_All_Wall(iMarker, config->GetMarker_CfgFile_Wall(Marker_Tag));//TODO
       config->SetMarker_All_Fluid_Load(iMarker, config->GetMarker_CfgFile_Fluid_Load(Marker_Tag));
       config->SetMarker_All_PyCustom(iMarker, config->GetMarker_CfgFile_PyCustom(Marker_Tag));
@@ -3768,7 +3768,7 @@ void CPhysicalGeometry::LoadUnpartitionedSurfaceElements(CConfig* config, CMeshR
       config->SetMarker_All_Deform_Mesh_Internal(iMarker, config->GetMarker_CfgFile_Deform_Mesh_Internal(Marker_Tag));
       config->SetMarker_All_BoundaryLayer(iMarker, config->GetMarker_CfgFile_BoundaryLayer(Marker_Tag)); //TODO
       config->SetMarker_All_Wall(iMarker, config->GetMarker_CfgFile_Wall(Marker_Tag));
-      config->SetMarker_All_MeshPeriodic(iMarker, config->GetMarker_CfgFile_MeshPeriodic(Marker_Tag));
+      config->SetMarker_All_MeshSliding(iMarker, config->GetMarker_CfgFile_MeshSliding(Marker_Tag));
       config->SetMarker_All_Fluid_Load(iMarker, config->GetMarker_CfgFile_Fluid_Load(Marker_Tag));
       config->SetMarker_All_PyCustom(iMarker, config->GetMarker_CfgFile_PyCustom(Marker_Tag));
       config->SetMarker_All_PerBound(iMarker, config->GetMarker_CfgFile_PerBound(Marker_Tag));

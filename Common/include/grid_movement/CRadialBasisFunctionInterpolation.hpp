@@ -42,6 +42,7 @@ protected:
 
   vector<CRadialBasisFunctionNode*>** InflationLayer_EdgeNodes;
   vector<CRadialBasisFunctionNode*>** InflationLayer_WallNodes;
+  vector<CRadialBasisFunctionNode*>** SlidingEdgeNodes;
   // vector<CRadialBasisFunctionNode*> wallNodes;
   unsigned long nWallNodes;
 
