@@ -164,4 +164,6 @@ public:
 
   su2double GetDistance(CConfig* config, const su2double* a, const su2double*b);
 
+  void GetSliding_Deformation(CGeometry* geometry, CConfig* config);
+
 };
