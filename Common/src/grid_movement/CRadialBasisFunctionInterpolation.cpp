@@ -64,7 +64,6 @@ void CRadialBasisFunctionInterpolation::SetVolume_Deformation(CGeometry* geometr
 
   SetInternalNodes(geometry, config);
 
-
   
   
   /*--- Looping over the number of deformation iterations ---*/
@@ -200,6 +199,22 @@ void CRadialBasisFunctionInterpolation::SetControlNodes(CGeometry* geometry, CCo
   if(!config->GetBL_Preservation()){
     controlNodes[0] = &boundaryNodes; // if case of no preservation of the inflation layer, the control nodes are the boundaryNodes. 
     // in case of inflation layer preservation, the controlNodes are assigned in the GetBL_deformation function
+  }
+
+  ofstream file;
+  file.open("control_nodes.txt");
+  file << "boundary nodes: \n";
+  for(auto x : boundaryNodes){
+    file << x->GetIndex() << ", ";
+  }
+  file << "\ninflation wall nodes: \n";
+  for(auto x : (*InflationLayer_WallNodes[0])){
+    file << x->GetIndex() << ", ";
+  }
+
+  file << "\ninflation edge nodes: \n" << endl;
+  for(auto x : (*InflationLayer_EdgeNodes[0])){
+    file << x->GetIndex() << ", ";
   }
 
   //TODO remove next print statements
@@ -435,17 +450,17 @@ void CRadialBasisFunctionInterpolation::SetInternalNodes(CGeometry* geometry, CC
   internalNodes.resize(idx_cnt);
 
   //TODO remove next print statements
-  // ofstream file;
-  // file.open("inodes2.txt");
-  // file << "internal inf lay nodes: \n";
-  // for(auto x : (*InflationLayer_InternalNodes[0])){
-  //   file << x << ", ";
-  // }
+  ofstream file;
+  file.open("inodes.txt");
+  file << "internal inf lay nodes: \n";
+  for(auto x : (*InflationLayer_InternalNodes[0])){
+    file << x << ", ";
+  }
 
-  // file << "\ninternal nodes: \n";
-  // for (auto x : internalNodes){
-  //   file << x << ", ";
-  // }
+  file << "\ninternal nodes: \n";
+  for (auto x : internalNodes){
+    file << x << ", ";
+  }
 
 
 }
@@ -543,7 +558,7 @@ void CRadialBasisFunctionInterpolation::GetBL_Deformation(CGeometry* geometry, C
     controlNodes[0] = InflationLayer_WallNodes[iMarker];
 
     // solving the interpolation system to obtain the interpolation coefficients of the control nodes
-    GetInterpolationCoefficients(geometry, config, 0); //TODO
+    GetInterpolationCoefficients(geometry, config, 0); 
   
     // finding free deformation of boundary layer edge nodes
     su2matrix<su2double> new_coord(InflationLayer_EdgeNodes[iMarker]->size(), nDim); //TODO should be resized instead of reinitialized
@@ -553,15 +568,15 @@ void CRadialBasisFunctionInterpolation::GetBL_Deformation(CGeometry* geometry, C
 
       // obtain current coordinate
       auto coord = geometry->nodes->GetCoord((*InflationLayer_EdgeNodes[iMarker])[iNode]->GetIndex());
-      
+
       // set new_coord equal to old coordinate
       for( iDim = 0; iDim < nDim; iDim++){
         new_coord[iNode][iDim] = coord[iDim];
       }
-      
+
       // looping through inflation layer wall nodes
       for(jNode = 0; jNode < InflationLayer_WallNodes[iMarker]->size(); jNode++){
-
+        cout << coord << endl;
         auto dist = GeometryToolbox::Distance(nDim, geometry->nodes->GetCoord((*InflationLayer_WallNodes[iMarker])[jNode]->GetIndex()), coord);
 
         auto rbf = SU2_TYPE::GetValue(CRadialBasisFunction::Get_RadialBasisValue(kindRBF, radius, dist));
@@ -571,6 +586,7 @@ void CRadialBasisFunctionInterpolation::GetBL_Deformation(CGeometry* geometry, C
           new_coord[iNode][iDim] += rbf*coefficients[jNode + iDim*InflationLayer_WallNodes[iMarker]->size()];
         }
       }
+      exit(0);
     }
     
     // adt variables for the tree containing the displaced inflation layer wall nodes
@@ -606,25 +622,33 @@ void CRadialBasisFunctionInterpolation::GetBL_Deformation(CGeometry* geometry, C
     for(iNode = 0; iNode < InflationLayer_EdgeNodes[iMarker]->size(); iNode++){      
       //determine nearest wall node
       WallADT.DetermineNearestNode(new_coord[iNode], dist, pointID, rankID);
-      
+      // cout << "edge node: " << (*InflationLayer_WallNodes[iMarker])[iNode]->GetIndex() << endl;
+      // cout << "coord: " << new_coord[iNode][0] << '\t' << new_coord[iNode][1] << '\t' << new_coord[iNode][2] << endl;
       //get normal and make it a unit vector
       auto normal = geometry->vertex[(*InflationLayer_WallNodes[iMarker])[pointID]->GetMarker()][(*InflationLayer_WallNodes[iMarker])[pointID]->GetVertex()]->GetNormal(); 
     
       auto normal_length = GeometryToolbox::Norm(nDim, normal);
+      
 
  
       for(iDim = 0; iDim < nDim; iDim++){
         normal[iDim] = normal[iDim]/normal_length;
       }
 
+      // cout << "closest wall: " << (*InflationLayer_WallNodes[iMarker])[pointID]->GetIndex() << endl;
+      // cout << "coord; " << geometry->vertex[(*InflationLayer_WallNodes[iMarker])[pointID]->GetMarker()][(*InflationLayer_WallNodes[iMarker])[pointID]->GetVertex()]->GetCoord()[0] << '\t' << geometry->vertex[(*InflationLayer_WallNodes[iMarker])[pointID]->GetMarker()][(*InflationLayer_WallNodes[iMarker])[pointID]->GetVertex()]->GetNormal()[1]  << '\t' << geometry->vertex[(*InflationLayer_WallNodes[iMarker])[pointID]->GetMarker()][(*InflationLayer_WallNodes[iMarker])[pointID]->GetVertex()]->GetNormal()[2] << endl;
+      // cout << "normal: " << normal[0] << '\t' << normal[1] << '\t' << normal[2] << endl;
       // find distance of freely displaced edge node to nearest wall node. 
       GeometryToolbox::Distance(nDim, new_coord[iNode], geometry->nodes->GetCoord((*InflationLayer_WallNodes[iMarker])[pointID]->GetIndex()), dist_vec);
-
+      // cout << "dist_vec: " << dist_vec[0] << '\t' << dist_vec[1] << '\t' <<dist_vec[2] << endl;
       // dot product of normal and distance vector
       auto dp = GeometryToolbox::DotProduct(nDim, normal, dist_vec);
 
       // required additional inflation layer thickness
-      added_thickness =  bl_thickness[iMarker] - dp;
+      added_thickness =  bl_thickness[iMarker] - dp; // TODO sign keeps changing somehow
+      // cout << dp << '\t' << added_thickness << endl;
+      // cout << bl_thickness[iMarker] << endl;
+      // exit(0);
 
       // required variation in coords to maintain inflation layer height
       su2double var_coord[nDim];
@@ -674,6 +698,7 @@ void CRadialBasisFunctionInterpolation::GetBL_Deformation(CGeometry* geometry, C
   //update the grid
   geometry->SetBoundControlVolume(config, UPDATE);
   // controlNodes = &boundaryNodes;//TODO  
+  exit(0);
 }
 
 void CRadialBasisFunctionInterpolation::GetBL_Thickness(CGeometry* geometry, CConfig* config){
