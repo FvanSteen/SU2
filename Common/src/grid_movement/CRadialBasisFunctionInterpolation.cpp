@@ -200,8 +200,9 @@ void CRadialBasisFunctionInterpolation::SetControlNodes(CGeometry* geometry, CCo
           if(nVertex > 1){
             if(geometry->nodes->GetPeriodicBoundary(geometry->vertex[iMarker][iVertex]->GetNode())){
               periodic_nodes.push_back(geometry->vertex[iMarker][iVertex]->GetNode()); //TODO for non sliding
-              // periodic_markers.push_back(iMarkerSlide);
-              // periodic_vertices.push_back(iVertex);
+              cout << geometry->vertex[iMarker][iVertex]->GetNode() << '\t' << geometry->vertex[iMarker][iVertex]->GetNormal()[0] << '\t' << geometry->vertex[iMarker][iVertex]->GetNormal()[1] << endl;
+              periodic_markers.push_back(iMarkerSlide);
+              periodic_vertices.push_back(iVertex);
               // SlidingEdgeNodes[iMarkerSlide]->push_back(new CRadialBasisFunctionNode(geometry, iMarker, iVertex));
             }else{
               boundaryNodes.push_back(new CRadialBasisFunctionNode(geometry, iMarker, iVertex));
@@ -248,9 +249,14 @@ void CRadialBasisFunctionInterpolation::SetControlNodes(CGeometry* geometry, CCo
         for(iVertex = 0; iVertex < geometry->GetnVertex(iMarker); iVertex++){
           auto it = std::find(periodic_nodes.begin(), periodic_nodes.end(), geometry->vertex[iMarker][iVertex]->GetNode());
           if(it != periodic_nodes.end()){
+            auto index = it - periodic_nodes.begin();
 
-            boundaryNodes.push_back(new CRadialBasisFunctionNode(geometry, iMarker, iVertex));
-      
+            //TODO if sliding node then ->
+            SlidingEdgeNodes[periodic_markers[index]]->push_back(new CRadialBasisFunctionNode(geometry, periodic_markers[index], periodic_vertices[index]));
+            
+            // else -->
+            // boundaryNodes.push_back(new CRadialBasisFunctionNode(geometry, iMarker, iVertex));
+              
             geometry->nodes->SetPeriodicBoundary(geometry->vertex[iMarker][iVertex]->GetNode(), false);
 
           }
@@ -324,7 +330,7 @@ void CRadialBasisFunctionInterpolation::SetInterpolationMatrix(CGeometry* geomet
   }
   
   // blocks off the main diagional
-  cout << "OFFDIAGONAL BLOCKS" << endl;
+  // cout << "OFFDIAGONAL BLOCKS" << endl;
   unsigned long start_row = 0;
   unsigned long start_col;
   for(iPtr = 0; iPtr < controlNodes.size(); iPtr++){
@@ -862,13 +868,14 @@ su2double CRadialBasisFunctionInterpolation::GetDistance(CConfig* config, const 
     unsigned short per_dir = 1;
     for(unsigned short iDim = 0; iDim < nDim; iDim++){
       if(iDim == per_dir){
-        d += pow( lambda/PI_NUMBER * sin( (a[iDim] - b[iDim]) * PI_NUMBER / lambda), 2);
+        d += pow( (lambda/PI_NUMBER * sin( (a[iDim] - b[iDim]) * PI_NUMBER / lambda)), 2);
       }else{
         d += pow(a[iDim] - b[iDim], 2);
       }
     }
     d = sqrt(d);
   }
+
 
   return d;
 }
@@ -884,6 +891,7 @@ void CRadialBasisFunctionInterpolation::GetSliding_Deformation(CGeometry* geomet
   controlNodes.resize(1);
   controlNodes[0] = &boundaryNodes;
 
+  su2double Nonlinear_iter = config->GetGridDef_Nonlinear_Iter(); 
 
   GetInterpolationCoefficients(geometry, config, 0);
 
@@ -905,9 +913,9 @@ void CRadialBasisFunctionInterpolation::GetSliding_Deformation(CGeometry* geomet
     CADTPointsOnlyClass WallADT(nDim, SlidingEdgeNodes[iMarker]->size(), Coord_bound.data(), PointIDs.data(), true);
 
     for(iNode = 0; iNode < SlidingEdgeNodes[iMarker]->size(); iNode++){
-      cout << (*SlidingEdgeNodes[iMarker])[iNode]->GetIndex() << endl;
+      // cout << (*SlidingEdgeNodes[iMarker])[iNode]->GetIndex() << endl;
       auto coord = geometry->nodes->GetCoord((*SlidingEdgeNodes[iMarker])[iNode]->GetIndex());
-      cout << coord[0] <<'\t' << coord[1] << endl;
+      // cout << coord[0] <<'\t' << coord[1] << endl;
       for( iDim = 0; iDim < nDim; iDim++){
         new_coord[iDim] = coord[iDim];
       }
@@ -918,21 +926,23 @@ void CRadialBasisFunctionInterpolation::GetSliding_Deformation(CGeometry* geomet
         // cout << geometry->nodes->GetCoord((*controlNodes[0])[jNode]->GetIndex())[0] << '\t' << geometry->nodes->GetCoord((*controlNodes[0])[jNode]->GetIndex())[1] << '\t'<<  geometry->nodes->GetCoord((*SlidingEdgeNodes[iMarker])[iNode]->GetIndex())[0] << '\t' << geometry->nodes->GetCoord((*SlidingEdgeNodes[iMarker])[iNode]->GetIndex())[1] << endl;
         auto dist = GetDistance(config, geometry->nodes->GetCoord((*SlidingEdgeNodes[iMarker])[iNode]->GetIndex()), geometry->nodes->GetCoord((*controlNodes[0])[jNode]->GetIndex()));
         // cout << dist << endl;
+
         auto rbf = SU2_TYPE::GetValue(CRadialBasisFunction::Get_RadialBasisValue(kindRBF, radius, dist));
 
         for( iDim = 0; iDim < nDim; iDim++){
           new_coord[iDim] += rbf*coefficients[jNode + iDim*controlNodes[0]->size()];
         }
       } 
+      // exit(0);
       // if((*SlidingEdgeNodes[iMarker])[iNode]->GetIndex() == 130){
       //   exit(0);
       // }
 
 
-      cout << new_coord[0] << '\t' << new_coord[1] << endl;
+      // cout << new_coord[0] << '\t' << new_coord[1] << endl;
       WallADT.DetermineNearestNode(new_coord, dist, pointID, rankID);
-      cout << "pointID: " << pointID << '\t' << "dist: " << dist << endl;
-      cout << geometry->nodes->GetCoord((*SlidingEdgeNodes[iMarker])[pointID]->GetIndex())[0] << '\t' << geometry->nodes->GetCoord((*SlidingEdgeNodes[iMarker])[pointID]->GetIndex())[1] << endl;
+      // cout << "pointID: " << pointID << '\t' << "dist: " << dist << endl;
+      // cout << geometry->nodes->GetCoord((*SlidingEdgeNodes[iMarker])[pointID]->GetIndex())[0] << '\t' << geometry->nodes->GetCoord((*SlidingEdgeNodes[iMarker])[pointID]->GetIndex())[1] << endl;
       
       auto normal = geometry->vertex[(*SlidingEdgeNodes[iMarker])[pointID]->GetMarker()][(*SlidingEdgeNodes[iMarker])[pointID]->GetVertex()]->GetNormal(); 
     
@@ -942,7 +952,7 @@ void CRadialBasisFunctionInterpolation::GetSliding_Deformation(CGeometry* geomet
       for(iDim = 0; iDim < nDim; iDim++){
         normal[iDim] = normal[iDim]/normal_length;
       }
-      cout << normal[0] << '\t' << normal[1] << endl;
+      // cout << normal[0] << '\t' << normal[1] << endl;
 
 
       // find distance of freely displaced edge node to nearest wall node. 
@@ -950,12 +960,12 @@ void CRadialBasisFunctionInterpolation::GetSliding_Deformation(CGeometry* geomet
 
       // dot product of normal and distance vector
       auto dp = GeometryToolbox::DotProduct(nDim, normal, dist_vec);
-      cout << dp*normal[0] << '\t' << dp*normal[1] << endl;
+      // cout << dp*normal[0] << '\t' << dp*normal[1] << endl;
       
       su2double var_coord[nDim];
       for( iDim = 0; iDim < nDim; iDim++){
         new_coord[iDim] += -dp*normal[iDim];
-        var_coord[iDim] = new_coord[iDim] - coord[iDim];
+        var_coord[iDim] = (new_coord[iDim] - coord[iDim])*Nonlinear_iter;
       }
 
       geometry->vertex[(*SlidingEdgeNodes[iMarker])[iNode]->GetMarker()][(*SlidingEdgeNodes[iMarker])[iNode]->GetVertex()]->SetVarCoord(var_coord); 
