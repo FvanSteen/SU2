@@ -117,6 +117,9 @@ class CPoint {
   su2matrix<int>
       AD_OutputIndex; /*!< \brief Indices of Coord variables in the adjoint vector after having been updated. */
 
+   su2vector<bool>
+      InflationLayerWallBoundary; /*!< \brief To see if a point belongs to a periodic boundary (without including MPI). */
+
   /*!
    * \brief Allocate fields required by the minimal constructor.
    */
@@ -908,4 +911,18 @@ class CPoint {
       }
     }
   }
+
+  // /*!
+  //  * \brief Set if a point belongs to a periodic boundary.
+  //  * \param[in] iPoint - Index of the point.
+  //  * \param[in] boundary - <code>TRUE</code> if the point belongs to a periodic boundary; otherwise <code>FALSE</code>.
+  //  */
+  inline void SetInflationLayerWallBoundary(unsigned long iPoint, bool boundary) { InflationLayerWallBoundary(iPoint) = boundary; }
+
+  // /*!
+  //  * \brief Provides information about if a point belongs to a periodic boundary (without MPI).
+  //  * \param[in] iPoint - Index of the point.
+  //  * \return <code>TRUE</code> if the point belongs to a periodic boundary; otherwise <code>FALSE</code>.
+  //  */
+  inline bool GetInflationLayerWallBoundary(unsigned long iPoint) const { return InflationLayerWallBoundary(iPoint); }
 };

@@ -43,7 +43,7 @@ protected:
   vector<CRadialBasisFunctionNode*>** InflationLayer_EdgeNodes;
   vector<CRadialBasisFunctionNode*>** InflationLayer_WallNodes;
   // vector<CRadialBasisFunctionNode*> wallNodes;
-  unsigned long nWallNodes;
+
 
   vector<unsigned long>** InflationLayer_InternalNodes;
 
@@ -160,5 +160,9 @@ public:
   unsigned long GetnControlNodes();
 
   void UpdateInflationLayerCoords(CGeometry* geometry, unsigned short iMarker);
+  
+  unsigned long GetnWallVertices(CConfig* config);
+
+  std::unique_ptr<CADTElemClass> GetWallADT(CGeometry* geometry,  CConfig* config);
 
 };

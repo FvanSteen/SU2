@@ -3423,12 +3423,14 @@ void CPhysicalGeometry::SetBoundaries(CConfig* config) {
             config->GetMarker_All_KindBC(iMarker) != NEARFIELD_BOUNDARY &&
             config->GetMarker_All_KindBC(iMarker) != PERIODIC_BOUNDARY)
           nodes->SetPhysicalBoundary(Point_Surface, true);
-
+        //TODO HERE
         if (config->GetSolid_Wall(iMarker)) nodes->SetSolidBoundary(Point_Surface, true);
 
         if (config->GetViscous_Wall(iMarker)) nodes->SetViscousBoundary(Point_Surface, true);
 
         if (config->GetMarker_All_KindBC(iMarker) == PERIODIC_BOUNDARY) nodes->SetPeriodicBoundary(Point_Surface, true);
+
+        if (config->GetMarker_All_Wall(iMarker)) nodes->SetInflationLayerWallBoundary(Point_Surface, true);
       }
     }
   }

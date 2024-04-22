@@ -91,6 +91,7 @@ void CPoint::FullAllocation(unsigned short imesh, const CConfig* config) {
   ViscousBoundary.resize(npoint) = false;
   PhysicalBoundary.resize(npoint) = false;
   PeriodicBoundary.resize(npoint) = false;
+  InflationLayerWallBoundary.resize(npoint) = false; 
 
   Vertex.resize(npoint);
 
