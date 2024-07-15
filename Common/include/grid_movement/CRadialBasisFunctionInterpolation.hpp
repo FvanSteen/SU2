@@ -51,7 +51,7 @@ protected:
   su2activematrix CtrlCoords;             /*!< \brief Coordinates of the control nodes.*/
 
   su2double MaxErrorGlobal{0.0};          /*!< \brief Maximum error data reduction algorithm.*/
-
+  su2double DataReductionTolerance{0.0};
   
 public:
 

@@ -111,24 +111,27 @@ void CRadialBasisFunctionInterpolation::SolveRBF_System(CGeometry* geometry, CCo
   
   if(config->GetRBF_DataReduction()){
     
-    /*--- Error tolerance for the data reduction tolerance ---*/
-    const su2double dataReductionTolerance = config->GetRBF_DataRedTolerance(); 
+    
 
     /*--- Local maximum error node and corresponding maximum error  ---*/
     unsigned long maxErrorNodeLocal;
     su2double maxErrorLocal{0};
 
-    /*--- Obtaining the initial maximum error nodes, which are found based on the maximum applied deformation. */
+    /*--- Obtaining the initial maximum error nodes, which are found based on the maximum applied deformation.
+              Determining the data reduction tolerance, which is equal to a specified factor of the maximum total deformation. ---*/
     if(ControlNodes->empty()){
       GetInitMaxErrorNode(geometry, config, maxErrorNodeLocal, maxErrorLocal); 
       SU2_MPI::Allreduce(&maxErrorLocal, &MaxErrorGlobal, 1, MPI_DOUBLE, MPI_MAX, SU2_MPI::GetComm());
+
+      /*--- Error tolerance for the data reduction tolerance ---*/
+      DataReductionTolerance = MaxErrorGlobal*config->GetRBF_DataRedTolerance() * ((su2double)config->GetGridDef_Nonlinear_Iter());
     }
 
     /*--- Number of greedy iterations. ---*/
     unsigned short greedyIter = 0;
 
     /*--- While the maximum error is above the tolerance, data reduction algorithm is continued. ---*/
-    while(MaxErrorGlobal > dataReductionTolerance || greedyIter == 0){ 
+    while(MaxErrorGlobal > DataReductionTolerance || greedyIter == 0){ 
       
       /*--- In case of a nonzero local error, control nodes are added ---*/
       if(maxErrorLocal> 0){
@@ -145,7 +148,7 @@ void CRadialBasisFunctionInterpolation::SolveRBF_System(CGeometry* geometry, CCo
       GetInterpError(geometry, config, type, radius, maxErrorNodeLocal, maxErrorLocal); 
       SU2_MPI::Allreduce(&maxErrorLocal, &MaxErrorGlobal, 1, MPI_DOUBLE, MPI_MAX, SU2_MPI::GetComm());
 
-      if(rank == MASTER_NODE) cout << "Greedy iteration: " << greedyIter << ". Max error: " << MaxErrorGlobal << ". Global nr. of ctrl nodes: "  << nCtrlNodesGlobal << "\n" << endl;
+      if(rank == MASTER_NODE) cout << "Greedy iteration: " << greedyIter << ". Max error: " << MaxErrorGlobal << ". Tol: " << DataReductionTolerance << ". Global nr. of ctrl nodes: "  << nCtrlNodesGlobal << "\n" << endl;
       greedyIter++;
 
     }  
@@ -416,7 +419,7 @@ void CRadialBasisFunctionInterpolation::UpdateGridCoord(CGeometry* geometry, CCo
   if(rank == MASTER_NODE){
     cout << "updating the grid coordinates" << endl;
   }
-  
+
   /*--- Update of internal node coordinates ---*/
   UpdateInternalCoords(geometry, type, radius, internalNodes);
 
