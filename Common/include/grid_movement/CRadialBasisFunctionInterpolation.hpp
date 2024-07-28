@@ -153,13 +153,13 @@ public:
   * \param[in] maxErrorNodeLocal - Local maximum error node.
   * \param[in] maxErrorLocal - Local maximum error.
   */
-  void GetInitMaxErrorNode(CGeometry* geometry, CConfig* config, unsigned long& maxErrorNodeLocal, su2double& maxErrorLocal);
+  void GetInitMaxErrorNode(CGeometry* geometry, CConfig* config, vector<unsigned long>& maxErrorNodes, su2double& maxErrorLocal);
 
   /*! 
   * \brief Addition of control node to the reduced set.
   * \param[in] maxErrorNode - Node with maximum error to be added.
   */
-  void AddControlNode(unsigned long maxErrorNode);
+  void AddControlNode( vector<unsigned long>& maxErrorNodes);
 
   /*! 
   * \brief Compute global number of control nodes.
@@ -175,7 +175,7 @@ public:
   * \param[in] maxErrorNodeLocal - Local maximum error node.
   * \param[in] maxErrorLocal - Local maximum error.
   */
-  void GetInterpError(CGeometry* geometry, CConfig* config, const RADIAL_BASIS& type, const su2double radius, unsigned long& maxErrorNodeLocal, su2double& maxErrorLocal);
+  void GetInterpError(CGeometry* geometry, CConfig* config, const RADIAL_BASIS& type, const su2double radius,  su2double& maxErrorLocal, vector<unsigned long>& maxErrorNodes);
 
   /*! 
   * \brief Compute error of single node.
@@ -244,4 +244,7 @@ public:
   inline static bool HasEqualIndex(CRadialBasisFunctionNode* a, CRadialBasisFunctionNode* b){
     return a->GetIndex() == b->GetIndex();
   }
+
+  void GetDoubleEdgeNode(const su2double* maxError, vector<unsigned long>& maxErrorNodes);
+  void CompareError(su2double* error, unsigned long iNode, su2double& maxError, unsigned long& idx);
 };

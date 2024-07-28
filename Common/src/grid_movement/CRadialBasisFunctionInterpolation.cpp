@@ -37,7 +37,19 @@ CRadialBasisFunctionInterpolation::~CRadialBasisFunctionInterpolation() = defaul
 
 void CRadialBasisFunctionInterpolation::SetVolume_Deformation(CGeometry* geometry, CConfig* config, bool UpdateGeo, bool Derivative,
                                                 bool ForwardProjectionDerivative){
-
+  // #ifdef HAVE_MPI
+  //   // if(rank == 5){
+  //     {
+  //       volatile int i = 0;
+  //       char hostname[256];
+  //       gethostname(hostname, sizeof(hostname));
+  //       printf("PID %d on %s ready for attach\n", getpid(), hostname);
+  //       fflush(stdout); 
+  //       while (0 == i)
+  //           sleep(2);
+  //     }
+  //   // }
+  // #endif
 
   /*--- Retrieve type of RBF and its support radius ---*/ 
 
@@ -71,6 +83,7 @@ void CRadialBasisFunctionInterpolation::SetVolume_Deformation(CGeometry* geometr
     /*--- Compute min volume in the entire mesh. ---*/
 
     ComputeDeforming_Element_Volume(geometry, MinVolume, MaxVolume, Screen_Output);
+
     if (rank == MASTER_NODE && Screen_Output)
       cout << "Min. volume: " << MinVolume << ", max. volume: " << MaxVolume << "." << endl;
     
@@ -99,7 +112,7 @@ void CRadialBasisFunctionInterpolation::SetVolume_Deformation(CGeometry* geometr
         cout << "Min. area: " << MinVolume <<  "." << endl;
       else
         cout << "Min. volume: " << MinVolume <<  "." << endl;
-    }
+   }
   }
 }
 
@@ -111,16 +124,15 @@ void CRadialBasisFunctionInterpolation::SolveRBF_System(CGeometry* geometry, CCo
   
   if(config->GetRBF_DataReduction()){
     
-    
-
     /*--- Local maximum error node and corresponding maximum error  ---*/
-    unsigned long maxErrorNodeLocal;
-    su2double maxErrorLocal{0};
+    vector <unsigned long> maxErrorNodes;
 
+    su2double maxErrorLocal{0};
+    
     /*--- Obtaining the initial maximum error nodes, which are found based on the maximum applied deformation.
               Determining the data reduction tolerance, which is equal to a specified factor of the maximum total deformation. ---*/
-    if(ControlNodes->empty()){
-      GetInitMaxErrorNode(geometry, config, maxErrorNodeLocal, maxErrorLocal); 
+    if(nCtrlNodesGlobal == 0){
+      GetInitMaxErrorNode(geometry, config, maxErrorNodes, maxErrorLocal); 
       SU2_MPI::Allreduce(&maxErrorLocal, &MaxErrorGlobal, 1, MPI_DOUBLE, MPI_MAX, SU2_MPI::GetComm());
 
       /*--- Error tolerance for the data reduction tolerance ---*/
@@ -135,7 +147,7 @@ void CRadialBasisFunctionInterpolation::SolveRBF_System(CGeometry* geometry, CCo
       
       /*--- In case of a nonzero local error, control nodes are added ---*/
       if(maxErrorLocal> 0){
-        AddControlNode(maxErrorNodeLocal);
+        AddControlNode(maxErrorNodes);
       }
 
       /*--- Obtaining the global number of control nodes. ---*/
@@ -145,7 +157,7 @@ void CRadialBasisFunctionInterpolation::SolveRBF_System(CGeometry* geometry, CCo
       GetInterpCoeffs(geometry, config, type, radius);
 
       /*--- Determining the interpolation error, of the non-control boundary nodes. ---*/
-      GetInterpError(geometry, config, type, radius, maxErrorNodeLocal, maxErrorLocal); 
+      GetInterpError(geometry, config, type, radius, maxErrorLocal, maxErrorNodes);       
       SU2_MPI::Allreduce(&maxErrorLocal, &MaxErrorGlobal, 1, MPI_DOUBLE, MPI_MAX, SU2_MPI::GetComm());
 
       if(rank == MASTER_NODE) cout << "Greedy iteration: " << greedyIter << ". Max error: " << MaxErrorGlobal << ". Tol: " << DataReductionTolerance << ". Global nr. of ctrl nodes: "  << nCtrlNodesGlobal << "\n" << endl;
@@ -205,6 +217,7 @@ void CRadialBasisFunctionInterpolation::SetBoundNodes(CGeometry* geometry, CConf
 
   /*--- Obtaining unique set ---*/
   BoundNodes.resize(std::distance(BoundNodes.begin(), unique(BoundNodes.begin(), BoundNodes.end(), HasEqualIndex)));
+
 }
 
 void CRadialBasisFunctionInterpolation::SetCtrlNodes(CConfig* config){
@@ -321,7 +334,7 @@ void CRadialBasisFunctionInterpolation::SetDeformation(CGeometry* geometry, CCon
 
       /*--- Sending the local deformation vector to the master node ---*/
       SU2_MPI::Send(CtrlNodeDeformation.data(), Local_nControlNodes*nDim, MPI_DOUBLE, MASTER_NODE, 0, SU2_MPI::GetComm());  
-    }
+    } 
   #endif   
 }
 
@@ -353,8 +366,6 @@ void CRadialBasisFunctionInterpolation::SetInternalNodes(CGeometry* geometry, CC
       }
     }
   }
-
-  
 
   /*--- In case of a parallel computation, the nodes on the send/receive markers are included as internal nodes
           if they are not already a boundary node with known deformation ---*/
@@ -494,7 +505,6 @@ void CRadialBasisFunctionInterpolation::UpdateBoundCoords(CGeometry* geometry, C
         geometry->nodes->AddCoord(BoundNodes[iNode]->GetIndex(), iDim, var_coord[iDim]);
         var_coord[iDim] = 0;
       }
-
     }
   }
   
@@ -509,11 +519,12 @@ void CRadialBasisFunctionInterpolation::UpdateBoundCoords(CGeometry* geometry, C
 }
 
 
-void CRadialBasisFunctionInterpolation::GetInitMaxErrorNode(CGeometry* geometry, CConfig* config, unsigned long& maxErrorNodeLocal, su2double& maxErrorLocal){
+void CRadialBasisFunctionInterpolation::GetInitMaxErrorNode(CGeometry* geometry, CConfig* config, vector<unsigned long>& maxErrorNodes, su2double& maxErrorLocal){
 
   /*--- Set max error to zero ---*/
   maxErrorLocal = 0.0;
 
+  unsigned long maxErrorNodeLocal;
   /*--- Loop over the nodes ---*/  
   for(auto iNode = 0ul; iNode < BoundNodes.size(); iNode++){
 
@@ -526,9 +537,31 @@ void CRadialBasisFunctionInterpolation::GetInitMaxErrorNode(CGeometry* geometry,
       maxErrorNodeLocal = iNode;
     }
   }
+  
+  if(maxErrorLocal > 0){
+    maxErrorNodes.push_back(maxErrorNodeLocal);
 
-  /*--- Account for the possibility of applying the deformation in multiple steps ---*/
-  maxErrorLocal = sqrt(maxErrorLocal) / ((su2double)config->GetGridDef_Nonlinear_Iter());
+    /*--- Account for the possibility of applying the deformation in multiple steps ---*/
+    maxErrorLocal = sqrt(maxErrorLocal) / ((su2double)config->GetGridDef_Nonlinear_Iter());
+
+
+    /*--- Steps for finding a node on a secondary edge (double edged greedy algorithm) ---*/
+
+    /*--- Total error, defined as total variation in coordinates ---*/
+    su2double* errorTotal = geometry->vertex[BoundNodes[maxErrorNodeLocal]->GetMarker()][BoundNodes[maxErrorNodeLocal]->GetVertex()]->GetVarCoord();
+
+    /*--- Making a copy of the total error to errorStep, to allow for manipulation of the data ---*/
+    su2double* errorStep = new su2double[nDim];
+    std::copy(errorTotal, errorTotal+nDim, errorStep);
+
+    /*--- Account for applying deformation in multiple steps ---*/
+    for( unsigned short iDim = 0u; iDim < nDim; iDim++){
+      errorStep[iDim] = errorStep[iDim]/(su2double)config->GetGridDef_Nonlinear_Iter();
+    }
+    
+    /*--- Finding a double edged error node if possible ---*/
+    GetDoubleEdgeNode(errorStep, maxErrorNodes);
+  }
 }
 
 
@@ -566,13 +599,14 @@ void CRadialBasisFunctionInterpolation::SetCtrlNodeCoords(CGeometry* geometry){
 };
 
 
-void CRadialBasisFunctionInterpolation::GetInterpError(CGeometry* geometry, CConfig* config, const RADIAL_BASIS& type, const su2double radius, unsigned long& maxErrorNodeLocal, su2double& maxErrorLocal){
+void CRadialBasisFunctionInterpolation::GetInterpError(CGeometry* geometry, CConfig* config, const RADIAL_BASIS& type, const su2double radius, su2double& maxErrorLocal, vector<unsigned long>& maxErrorNodes){
+  
   /*--- Array containing the local error ---*/
   su2double localError[nDim];
 
   /*--- Magnitude of the local maximum error ---*/
   maxErrorLocal = 0.0;
-
+  unsigned long maxErrorNodeLocal;
   /*--- Loop over non-selected boundary nodes ---*/
   for(auto iNode = 0ul; iNode < BoundNodes.size(); iNode++){
 
@@ -581,7 +615,7 @@ void CRadialBasisFunctionInterpolation::GetInterpError(CGeometry* geometry, CCon
 
     /*--- Setting error ---*/
     BoundNodes[iNode]->SetError(localError, nDim);
-    
+
     /*--- Compute error magnitude and update local maximum error if necessary ---*/
     su2double errorMagnitude = GeometryToolbox::Norm(nDim, localError);
     if(errorMagnitude > maxErrorLocal){
@@ -589,6 +623,14 @@ void CRadialBasisFunctionInterpolation::GetInterpError(CGeometry* geometry, CCon
       maxErrorNodeLocal = iNode;
     }
   }  
+
+  if(maxErrorLocal > 0){
+    /*--- Including the maximum error nodes in the max error nodes vector ---*/
+    maxErrorNodes.push_back(maxErrorNodeLocal);
+    
+    /*--- Finding a double edged error node if possible ---*/
+    GetDoubleEdgeNode(BoundNodes[maxErrorNodes[0]]->GetError(), maxErrorNodes);
+  }
 }
 
 void CRadialBasisFunctionInterpolation::GetNodalError(CGeometry* geometry, CConfig* config, const RADIAL_BASIS& type, const su2double radius, unsigned long iNode, su2double* localError){ 
@@ -626,6 +668,75 @@ void CRadialBasisFunctionInterpolation::GetNodalError(CGeometry* geometry, CConf
       localError[iDim] += rbf*InterpCoeff[jNode*nDim + iDim];
     }
   }
+
+}
+
+void CRadialBasisFunctionInterpolation::GetDoubleEdgeNode(const su2double* maxError, vector<unsigned long>& maxErrorNodes){
+  
+  /*--- Obtaining maximum error vector and its corresponding angle ---*/
+  const auto polarAngleMaxError = atan2(maxError[1],maxError[0]);
+  const auto azimuthAngleMaxError = atan2( sqrt( pow(maxError[0],2) + pow(maxError[1],2)), maxError[2]);
+
+  su2double max = 0;
+  unsigned long idx;
+  bool found = false;
+
+  for(auto iNode = 0ul; iNode < BoundNodes.size(); iNode++){
+    
+    auto error = BoundNodes[iNode]->GetError();
+    su2double polarAngle = atan2(error[1],error[0]);
+    su2double relativePolarAngle = abs(polarAngle - polarAngleMaxError);
+
+    switch(nDim){
+      case 2:
+        if ( abs(relativePolarAngle - M_PI) < M_PI/2 ){
+          CompareError(error, iNode, max, idx);
+        }
+        break;
+      case 3:
+
+        su2double azimuthAngle = atan2( sqrt( pow(error[0],2) + pow(error[1],2)), error[2]);
+        if ( abs(relativePolarAngle - M_PI) < M_PI/2 ){
+          if( azimuthAngleMaxError <= M_PI/2 ) {
+            if ( azimuthAngle > M_PI/2 - azimuthAngleMaxError) {
+              CompareError(error, iNode, max, idx);
+            }
+          }
+          else{
+            if ( azimuthAngle < 1.5 * M_PI - azimuthAngleMaxError ){
+              CompareError(error, iNode, max, idx);
+            }
+          }          
+        }
+        else{
+          if(azimuthAngleMaxError <= M_PI/2){
+            if(azimuthAngle > M_PI/2 + azimuthAngleMaxError){
+              CompareError(error, iNode, max, idx);
+            }
+          }else{
+            if(azimuthAngle < azimuthAngleMaxError -  M_PI/2){
+              CompareError(error, iNode, max, idx);
+            }
+          }
+        }
+        break;
+    }
+  }
+  
+
+  /*--- Include the found double edge node in the maximum error nodes vector ---*/
+  if(max > 0){
+    maxErrorNodes.push_back(idx);
+  }
+}
+
+void CRadialBasisFunctionInterpolation::CompareError(su2double* error, unsigned long iNode, su2double& maxError, unsigned long& idx){
+  auto errMag = GeometryToolbox::SquaredNorm(nDim, error);
+
+  if(errMag > maxError){
+    maxError = errMag;
+    idx = iNode;
+  }
 }
 
 void CRadialBasisFunctionInterpolation::SetCorrection(CGeometry* geometry, CConfig* config, const RADIAL_BASIS& type, const vector<unsigned long>& internalNodes){
@@ -661,7 +772,7 @@ void CRadialBasisFunctionInterpolation::SetCorrection(CGeometry* geometry, CConf
   }
 
   /*--- Construction of AD tree ---*/
-  CADTPointsOnlyClass BoundADT(nDim, nVertexBound, Coord_bound.data(), PointIDs.data(), true);
+  CADTPointsOnlyClass BoundADT(nDim, nVertexBound, Coord_bound.data(), PointIDs.data(), false);
 
   /*--- ID of nearest boundary node ---*/
   unsigned long pointID;
@@ -669,17 +780,17 @@ void CRadialBasisFunctionInterpolation::SetCorrection(CGeometry* geometry, CConf
   su2double dist;
   /*--- rank of nearest boundary node ---*/
   int rankID;
-
+ 
   /*--- Interpolation of the correction to the internal nodes that fall within the correction radius ---*/
   for(auto iNode = 0ul; iNode < internalNodes.size(); iNode++){
 
     /*--- Find nearest node ---*/
     BoundADT.DetermineNearestNode(geometry->nodes->GetCoord(internalNodes[iNode]), dist, pointID, rankID);  
-
+    
     /*--- Get error of nearest node ---*/
     auto err = BoundNodes[pointID]->GetError();
 
-    /*--- evaluate RBF ---*/
+    /*--- evaluate RBF ---*/    
     auto rbf = SU2_TYPE::GetValue(CRadialBasisFunction::Get_RadialBasisValue(type, CorrectionRadius, dist));
 
     /*--- Apply correction to the internal node ---*/
@@ -687,6 +798,8 @@ void CRadialBasisFunctionInterpolation::SetCorrection(CGeometry* geometry, CConf
       geometry->nodes->AddCoord(internalNodes[iNode], iDim, -rbf*err[iDim]);
     }
   }
+  
+
 
   /*--- Applying the correction to the non-selected boundary nodes ---*/
   for(auto iNode = 0ul; iNode < BoundNodes.size(); iNode++){
@@ -698,21 +811,31 @@ void CRadialBasisFunctionInterpolation::SetCorrection(CGeometry* geometry, CConf
 }
 
 
-void CRadialBasisFunctionInterpolation::AddControlNode(unsigned long maxErrorNode){
-  /*--- Addition of node to the reduced set of control nodes ---*/
-  ReducedControlNodes.push_back(move(BoundNodes[maxErrorNode]));
+void CRadialBasisFunctionInterpolation::AddControlNode(vector<unsigned long>& maxErrorNodes){
+  /*--- Sort indices in descending order, to prevent shift in index as they are erased ---*/
+  sort(maxErrorNodes.rbegin(),maxErrorNodes.rend()); 
+  
+  for(auto iNode : maxErrorNodes){
+    /*--- Addition of node to the reduced set of control nodes ---*/
+    ReducedControlNodes.push_back(move(BoundNodes[iNode]));
 
-  /*--- Removal of node among the non-selected boundary nodes ---*/
-  BoundNodes.erase(BoundNodes.begin()+maxErrorNode);
+    /*--- Removal of node among the non-selected boundary nodes ---*/
+    BoundNodes.erase(BoundNodes.begin()+iNode);
+  }
+
+  /*--- Clearing maxErrorNodes vector ---*/
+  maxErrorNodes.clear();
+ 
 }
 
 
 void CRadialBasisFunctionInterpolation::Get_nCtrlNodesGlobal(){
   /*--- Determining the global number of control nodes ---*/
-
-  /*--- Local number of control nodes ---*/
-  auto local_nControlNodes = ControlNodes->size();
   
+  /*--- Local number of control nodes ---*/
+  unsigned long local_nControlNodes = ControlNodes->size();
+
   /*--- Summation of local number of control nodes ---*/
-  SU2_MPI::Allreduce(&local_nControlNodes, &nCtrlNodesGlobal, 1, MPI_UNSIGNED_LONG, MPI_SUM, SU2_MPI::GetComm());
+    SU2_MPI::Allreduce(&local_nControlNodes, &nCtrlNodesGlobal, 1, MPI_UNSIGNED_LONG, MPI_SUM, SU2_MPI::GetComm());
+
 }
