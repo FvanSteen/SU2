@@ -29,6 +29,7 @@
 #include "CVolumetricMovement.hpp"
 #include "CRadialBasisFunctionNode.hpp"
 #include "../../include/toolboxes/CSymmetricMatrix.hpp"
+#include "../../include/adt/CADTPointsOnlyClass.hpp"
 
 /*!
  * \class CRadialBasisFunctionInterpolation
@@ -39,15 +40,17 @@
 class CRadialBasisFunctionInterpolation : public CVolumetricMovement {
 protected:
 
-  vector<CRadialBasisFunctionNode*>* ControlNodes = nullptr;  /*!< \brief Vector with control nodes*/
+  vector<vector<CRadialBasisFunctionNode*>*> ControlNodes; /*!< \brief Vector with control nodes*/
   vector<CRadialBasisFunctionNode*> BoundNodes;               /*!< \brief Vector with boundary nodes.*/
-  vector<CRadialBasisFunctionNode*> ReducedControlNodes;      /*!< \brief Vector with selected control nodes in data reduction algorithm. */
-  
+  vector<CRadialBasisFunctionNode*> ReducedBoundNodes;      /*!< \brief Vector with selected control nodes in data reduction algorithm. */
+  vector<CRadialBasisFunctionNode*> ReducedSlideNodes;      /*!< \brief Vector with selected control nodes in data reduction algorithm. */
+  vector<CRadialBasisFunctionNode*> SlideSurfNodes;
   
   vector<su2double> CtrlNodeDeformation;  /*!< \brief Control Node Deformation.*/ 
   vector<su2double> InterpCoeff;          /*!< \brief Control node interpolation coefficients.*/
 
-  unsigned long nCtrlNodesGlobal{0};      /*!< \brief Total number of control nodes.*/
+  unsigned long nCtrlNodesGlobal{0},      /*!< \brief Total number of control nodes.*/
+  nCtrlNodesLocal{0};
   su2activematrix CtrlCoords;             /*!< \brief Coordinates of the control nodes.*/
 
   su2double MaxErrorGlobal{0.0};          /*!< \brief Maximum error data reduction algorithm.*/
@@ -153,13 +156,13 @@ public:
   * \param[in] maxErrorNodeLocal - Local maximum error node.
   * \param[in] maxErrorLocal - Local maximum error.
   */
-  void GetInitMaxErrorNode(CGeometry* geometry, CConfig* config, vector<unsigned long>& maxErrorNodes, su2double& maxErrorLocal);
+  void GetInitMaxErrorNode(CGeometry* geometry, CConfig* config, vector<CRadialBasisFunctionNode*>& maxErrorNodes, su2double& maxErrorLocal);
 
   /*! 
   * \brief Addition of control node to the reduced set.
   * \param[in] maxErrorNode - Node with maximum error to be added.
   */
-  void AddControlNode( vector<unsigned long>& maxErrorNodes);
+  void AddControlNode( vector<CRadialBasisFunctionNode*>& maxErrorNodes);
 
   /*! 
   * \brief Compute global number of control nodes.
@@ -175,7 +178,7 @@ public:
   * \param[in] maxErrorNodeLocal - Local maximum error node.
   * \param[in] maxErrorLocal - Local maximum error.
   */
-  void GetInterpError(CGeometry* geometry, CConfig* config, const RADIAL_BASIS& type, const su2double radius,  su2double& maxErrorLocal, vector<unsigned long>& maxErrorNodes);
+  void GetInterpError(CGeometry* geometry, CConfig* config, const RADIAL_BASIS& type, const su2double radius,  su2double& maxErrorLocal, vector<CRadialBasisFunctionNode*>& maxErrorNodes);
 
   /*! 
   * \brief Compute error of single node.
@@ -242,9 +245,13 @@ public:
   * \return True if index of a and b are equal.
   */
   inline static bool HasEqualIndex(CRadialBasisFunctionNode* a, CRadialBasisFunctionNode* b){
-    return a->GetIndex() == b->GetIndex();
+    return b->GetIndex() == a->GetIndex();
   }
 
-  void GetDoubleEdgeNode(const su2double* maxError, vector<unsigned long>& maxErrorNodes);
-  void CompareError(su2double* error, unsigned long iNode, su2double& maxError, unsigned long& idx);
+  void GetDoubleEdgeNode(const su2double* maxError, vector<CRadialBasisFunctionNode*>& maxErrorNodes);
+  void CompareError(su2double* error, CRadialBasisFunctionNode* iNode, su2double& maxError, CRadialBasisFunctionNode** idx);
+
+  void GetSlidingDeformation(CGeometry* geometry, CConfig* config, const RADIAL_BASIS& type, const su2double radius, CADTPointsOnlyClass& BoundADT);
+  // CADTPointsOnlyClass GetADT(CGeometry* geometry);
+  void GetSlidingNodalError(CGeometry* geometry, CConfig* config, const RADIAL_BASIS& type, const su2double radius, unsigned long iNode, su2double* localError, CADTPointsOnlyClass& BoundADT);
 };
