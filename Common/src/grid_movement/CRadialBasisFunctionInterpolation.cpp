@@ -310,63 +310,66 @@ void CRadialBasisFunctionInterpolation::SetInternalNodes(CGeometry* geometry, CC
   unsigned short iMarker, iWallMarker= 0, jNode, iDim;
   unsigned long iNode, iElem; 
 
-  unique_ptr<CADTElemClass> ElemADT2;
-  if (config->GetBL_Preservation()){
-    ElemADT2 = GetWallADT(geometry, config);
-  }
+  // unique_ptr<CADTElemClass> ElemADT2;
+  // if (config->GetBL_Preservation()){
+  //   ElemADT2 = GetWallADT(geometry, config);
+  // }
   
-  // vector<su2double> surfaceCoor;
-  // vector<unsigned long> surfaceConn;
-  // vector<unsigned long> elemIDs;
-  // vector<unsigned short> VTK_TypeElem;
-  // vector<unsigned short> markerIDs;
+  vector<su2double> surfaceCoor;
+  vector<unsigned long> surfaceConn;
+  vector<unsigned long> elemIDs;
+  vector<unsigned short> VTK_TypeElem;
+  vector<unsigned short> markerIDs;
 
   su2double dist;
   int rankID;
 
   // construction of ADT for elements
-  // if(config->GetBL_Preservation()){ //TODO make function for this that returns pointer to the ad tree
+  if(config->GetBL_Preservation()){ //TODO make function for this that returns pointer to the ad tree
 
-  //   vector<unsigned long> wallVertices(geometry->GetnPoint(), 0);
+    vector<unsigned long> wallVertices(geometry->GetnPoint(), 0);
 
-  //   for(iMarker = 0; iMarker < config->GetnMarker_All(); iMarker++){ // loop through wall node boundaries
+    for(iMarker = 0; iMarker < config->GetnMarker_All(); iMarker++){ // loop through wall node boundaries
       
-  //     if(config->GetMarker_All_Wall(iMarker)){
+      if(config->GetMarker_All_Wall(iMarker)){
 
-  //       for (iElem = 0; iElem < geometry->nElem_Bound[iMarker]; iElem++) {
+        for (iElem = 0; iElem < geometry->nElem_Bound[iMarker]; iElem++) {
       
-  //         const unsigned short VTK_Type = geometry->bound[iMarker][iElem]->GetVTK_Type();
-  //         const unsigned short nDOFsPerElem = geometry->bound[iMarker][iElem]->GetnNodes();
+          const unsigned short VTK_Type = geometry->bound[iMarker][iElem]->GetVTK_Type();
+          const unsigned short nDOFsPerElem = geometry->bound[iMarker][iElem]->GetnNodes();
           
-  //         markerIDs.push_back(iWallMarker);
-  //         VTK_TypeElem.push_back(VTK_Type);
-  //         elemIDs.push_back(iElem);
+          markerIDs.push_back(iWallMarker);
+          VTK_TypeElem.push_back(VTK_Type);
+          elemIDs.push_back(iElem);
 
-  //         for(jNode = 0; jNode < nDOFsPerElem; jNode++){
-  //           iNode = geometry->bound[iMarker][iElem]->GetNode(jNode);
-  //           wallVertices[iNode] = 1;
-  //           surfaceConn.push_back(geometry->bound[iMarker][iElem]->GetNode(jNode));
-  //         }
-  //       }
-  //       iWallMarker++;
-  //     }
-  //   }
+          for(jNode = 0; jNode < nDOFsPerElem; jNode++){
+            iNode = geometry->bound[iMarker][iElem]->GetNode(jNode);
+            wallVertices[iNode] = 1;
+            surfaceConn.push_back(geometry->bound[iMarker][iElem]->GetNode(jNode));
+          }
+        }
+        iWallMarker++;
+      }
+    }
   
 
-  
-  //   unsigned long nWallNodes = GetnWallVertices(config);
-  //   for (iNode = 0; iNode < geometry->GetnPoint(); iNode++) {
-  //     if (wallVertices[iNode]) {
-  //       wallVertices[iNode] = nWallNodes++;
+    // get number of wall nodes
+    unsigned long nWallNodes = 0;//GetnWallVertices(config);
 
-  //       for (iDim = 0; iDim < nDim; iDim++) surfaceCoor.push_back(geometry->nodes->GetCoord(iNode, iDim));
-  //     }
-  //   }
-  //   for(iNode = 0; iNode < surfaceConn.size(); iNode++) surfaceConn[iNode] = wallVertices[surfaceConn[iNode]];
+    //loop over all nodes
+    for (iNode = 0; iNode < geometry->GetnPoint(); iNode++) {
+      // in case of wall node update?
+      if (wallVertices[iNode]) {
+        wallVertices[iNode] = nWallNodes++;
+
+        for (iDim = 0; iDim < nDim; iDim++) surfaceCoor.push_back(geometry->nodes->GetCoord(iNode, iDim));
+      }
+    }
+    for(iNode = 0; iNode < surfaceConn.size(); iNode++) surfaceConn[iNode] = wallVertices[surfaceConn[iNode]];
     
-  // }
+  }
 
-  // CADTElemClass ElemADT(nDim, surfaceCoor, surfaceConn, VTK_TypeElem, markerIDs, elemIDs, true);
+  CADTElemClass ElemADT(nDim, surfaceCoor, surfaceConn, VTK_TypeElem, markerIDs, elemIDs, true);
   
 
   /*--- resizing the internal nodes vector ---*/
@@ -399,11 +402,19 @@ void CRadialBasisFunctionInterpolation::SetInternalNodes(CGeometry* geometry, CC
         
       //  ElemADT.DetermineNearestElement(geometry->nodes->GetCoord(iNode), dist, nearest_marker, nearest_elem, rankID);
       //  cout << dist << '\t' << nearest_marker << '\t' << nearest_elem << endl;
-       ElemADT2->DetermineNearestElement(geometry->nodes->GetCoord(iNode), dist, nearest_marker, nearest_elem, rankID);
-       cout << "check" << endl;
-       cout << dist << '\t' << geometry->nodes->GetCoord(iNode)[0] << '\t' << geometry->nodes->GetCoord(iNode)[1] << '\t' << geometry->vertex[nearest_marker][nearest_elem]->GetCoord()[0] << '\t' << geometry->vertex[nearest_marker][nearest_elem]->GetCoord()[1] << endl;
+       ElemADT.DetermineNearestElement(geometry->nodes->GetCoord(iNode), dist, nearest_marker, nearest_elem, rankID);
+       cout << geometry->nodes->GetCoord(iNode)[0] << "\t" << geometry->nodes->GetCoord(iNode)[1] << "\t"<<  dist << "\t" << nearest_marker << "\t" << nearest_elem << endl;
+
+      //  TODO for some reason the distance from ElemADT is not correct. 
+      //  auto distance = GeometryToolbox::Distance(nDim, geometry->nodes->GetCoord(iNode), geometry->vertex[nearest_marker][nearest_elem]->GetCoord());
+
+      //  cout << "check" << endl;
+      //  cout << distance << '\t' << geometry->nodes->GetCoord(iNode)[0] << '\t' << geometry->nodes->GetCoord(iNode)[1] << '\t' << geometry->vertex[nearest_marker][nearest_elem]->GetCoord()[0] << '\t' << geometry->vertex[nearest_marker][nearest_elem]->GetCoord()[1] << endl;
        file1 << dist << '\t' << nearest_marker << '\t' << nearest_elem <<  endl;
        
+
+      
+
        if(dist <= bl_thickness[nearest_marker] ){
         InflationLayer_InternalNodes[nearest_marker]->push_back(iNode);
        }else{
@@ -628,7 +639,7 @@ void CRadialBasisFunctionInterpolation::GetBL_Deformation(CGeometry* geometry, C
 
       // required additional inflation layer thickness
       // if( abs(dp) > bl_thickness[iMarker]){
-        added_thickness =  bl_thickness[iMarker] - abs(dp); // TODO sign keeps changing somehow
+        added_thickness = - bl_thickness[iMarker] + abs(dp); // TODO sign keeps changing somehow (started as +, - for 3D | -, + for 2D)
       // }else added_thi.ckness= 0;
       
       
