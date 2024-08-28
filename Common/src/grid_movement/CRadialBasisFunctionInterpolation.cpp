@@ -428,6 +428,17 @@ void CRadialBasisFunctionInterpolation::SetInternalNodes(CGeometry* geometry, CC
     
   }
   file1.close();
+  for(auto iMarker = 0u; iMarker < config->GetnMarker_All();iMarker++){
+    if (config->GetMarker_All_Deform_Mesh_Internal(iMarker)){
+      for (auto iVertex = 0ul; iVertex < geometry->nVertex[iMarker]; iVertex++){
+        internalNodes[idx_cnt++] = geometry->vertex[iMarker][iVertex]->GetNode();
+      }
+    }
+
+    
+
+    
+  }
 
   // setting to actual size
   internalNodes.resize(idx_cnt);
