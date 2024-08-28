@@ -704,6 +704,30 @@ void CRadialBasisFunctionInterpolation::UpdateBoundCoords(CGeometry* geometry, C
       }
     }
   }
+
+  // for(auto iNode = 0ul; iNode < SlideSurfNodes.size(); iNode++){//TODO check this out
+      
+  //   /*--- Finding contribution of each control node ---*/
+  //   for( auto jNode = 0ul; jNode <  nCtrlNodesGlobal; jNode++){
+      
+  //     /*--- Distance of non-selected boundary node to control node ---*/
+  //     auto dist = GeometryToolbox::Distance(nDim, CtrlCoords[jNode*nDim], geometry->nodes->GetCoord(SlideSurfNodes[iNode]->GetIndex()));
+      
+  //     /*--- Evaluation of the radial basis function based on the distance ---*/
+  //     auto rbf = SU2_TYPE::GetValue(CRadialBasisFunction::Get_RadialBasisValue(type, radius, dist));
+
+  //     /*--- Computing and add the resulting coordinate variation ---*/
+  //     for(auto iDim = 0u; iDim < nDim; iDim++){
+  //       var_coord[iDim] += rbf*InterpCoeff[jNode * nDim + iDim];
+  //     }
+  //   }
+
+  //   /*--- Applying the coordinate variation and resetting the var_coord vector*/
+  //   for(auto iDim = 0u; iDim < nDim; iDim++){
+  //     geometry->nodes->AddCoord(SlideSurfNodes[iNode]->GetIndex(), iDim, var_coord[iDim]);
+  //     var_coord[iDim] = 0;
+  //   }
+  // }
   
   
   /*--- Applying the surface deformation, which are stored in the deformation vector ---*/
@@ -1204,9 +1228,9 @@ void CRadialBasisFunctionInterpolation::GetSlidingDeformation(CGeometry* geometr
 
 
 
-  for(auto iNode = 0ul; iNode < ReducedSlideNodes.size(); iNode++){ //TODO nodes here should be SlideSurfNodes/reducedSlideNodes
+  for(auto iNode = 0ul; iNode < SlideSurfNodes.size(); iNode++){ //TODO nodes here should be SlideSurfNodes/reducedSlideNodes
 
-    auto coord = geometry->nodes->GetCoord(ReducedSlideNodes[iNode]->GetIndex());
+    auto coord = geometry->nodes->GetCoord(SlideSurfNodes[iNode]->GetIndex());
 
     for(auto iDim = 0u; iDim < nDim; iDim++){
       new_coord[iDim] = coord[iDim];
@@ -1217,7 +1241,7 @@ void CRadialBasisFunctionInterpolation::GetSlidingDeformation(CGeometry* geometr
     for( auto jNode = 0ul; jNode <  nCtrlNodesGlobal; jNode++){
       
       /*--- Distance of non-selected boundary node to control node ---*/
-      auto dist = GeometryToolbox::Distance(nDim, CtrlCoords[jNode*nDim], geometry->nodes->GetCoord(ReducedSlideNodes[iNode]->GetIndex()));
+      auto dist = GeometryToolbox::Distance(nDim, CtrlCoords[jNode*nDim], geometry->nodes->GetCoord(SlideSurfNodes[iNode]->GetIndex()));
       
       /*--- Evaluation of the radial basis function based on the distance ---*/
       auto rbf = SU2_TYPE::GetValue(CRadialBasisFunction::Get_RadialBasisValue(type, radius, dist));
@@ -1261,7 +1285,7 @@ void CRadialBasisFunctionInterpolation::GetSlidingDeformation(CGeometry* geometr
     }
 
 
-    geometry->vertex[ReducedSlideNodes[iNode]->GetMarker()][ReducedSlideNodes[iNode]->GetVertex()]->SetVarCoord(var_coord); 
+    geometry->vertex[SlideSurfNodes[iNode]->GetMarker()][SlideSurfNodes[iNode]->GetVertex()]->SetVarCoord(var_coord); 
     
     /*--- Applying the coordinate variation and resetting the var_coord vector*/
     // for(auto iDim = 0u; iDim < nDim; iDim++){
