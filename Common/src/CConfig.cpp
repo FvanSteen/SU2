@@ -838,6 +838,7 @@ void CConfig::SetPointersNull() {
   Marker_CfgFile_Deform_Mesh   = nullptr;  Marker_All_Deform_Mesh   = nullptr;
   Marker_CfgFile_Deform_Mesh_Sym_Plane   = nullptr;  Marker_All_Deform_Mesh_Sym_Plane   = nullptr;
   Marker_CfgFile_Deform_Mesh_Internal   = nullptr;  Marker_All_Deform_Mesh_Internal   = nullptr;
+  Marker_CfgFile_Deform_Mesh_IL_Wall   = nullptr;  Marker_All_Deform_Mesh_IL_Wall   = nullptr;
   Marker_CfgFile_Fluid_Load    = nullptr;  Marker_All_Fluid_Load    = nullptr;
   Marker_CfgFile_SobolevBC     = nullptr;  Marker_All_SobolevBC     = nullptr;
 
@@ -865,6 +866,7 @@ void CConfig::SetPointersNull() {
   Marker_SymWall              = nullptr;    Marker_PerBound             = nullptr;
   Marker_PerDonor             = nullptr;    Marker_NearFieldBound       = nullptr;    Marker_Inlet_Turb          = nullptr;
   Marker_Deform_Mesh          = nullptr;    Marker_Deform_Mesh_Sym_Plane= nullptr;    Marker_Deform_Mesh_Internal= nullptr;
+  Marker_Deform_Mesh_IL_Wall  = nullptr;
   Marker_Fluid_Load           = nullptr;
   Marker_Inlet                = nullptr;    Marker_Outlet               = nullptr;    Marker_Inlet_Species       = nullptr;
   Marker_Supersonic_Inlet     = nullptr;    Marker_Supersonic_Outlet    = nullptr;    Marker_Smoluchowski_Maxwell= nullptr;
@@ -1501,6 +1503,8 @@ void CConfig::SetConfig_Options() {
   addStringListOption("MARKER_DEFORM_MESH_SYM_PLANE", nMarker_Deform_Mesh_Sym_Plane, Marker_Deform_Mesh_Sym_Plane);
   /*!\brief MARKER_DEFORM_MESH_INTERNAL\n DESCRIPTION: Internal marker for mesh deformation only \ingroup Config*/
   addStringListOption("MARKER_DEFORM_MESH_INTERNAL", nMarker_Deform_Mesh_Internal, Marker_Deform_Mesh_Internal);
+  /*!\brief MARKER_DEFORM_MESH_IL_WALL\n DESCRIPTION: Inflation layer marker for mesh deformation only \ingroup Config*/
+  addStringListOption("MARKER_DEFORM_MESH_IL_WALL", nMarker_Deform_Mesh_IL_Wall, Marker_Deform_Mesh_IL_Wall);
   /*!\brief MARKER_FLUID_LOAD\n DESCRIPTION: Marker(s) in which the flow load is computed/applied \ingroup Config*/
   addStringListOption("MARKER_FLUID_LOAD", nMarker_Fluid_Load, Marker_Fluid_Load);
   /*!\brief MARKER_FSI_INTERFACE \n DESCRIPTION: ZONE interface boundary marker(s) \ingroup Config*/
@@ -2387,6 +2391,8 @@ void CConfig::SetConfig_Options() {
   addDoubleOption("RBF_GREEDY_TOLERANCE", RBF_GreedyTolerance, 1E-2);
   /* DESCRIPTION: Tolerance for the data reduction methods used in RBF mesh deformation. */
   addDoubleOption("RBF_GREEDY_CORRECTION_FACTOR", RBF_GreedyCorrectionFactor, 1E-2);
+  /* DESCRIPTION: Use of inlation layer preservation for RBF interpolated mesh deformation */
+  addBoolOption("RBF_IL_PRESERVATION", RBF_IL_Preservation, false);
 
   /*!\par CONFIG_CATEGORY: FEM flow solver definition \ingroup Config*/
   /*--- Options related to the finite element flow solver---*/
@@ -5575,7 +5581,7 @@ void CConfig::SetMarkers(SU2_COMPONENT val_software) {
   iMarker_Monitoring, iMarker_Designing, iMarker_GeoEval, iMarker_Plotting, iMarker_Analyze,
   iMarker_DV, iMarker_Moving, iMarker_SobolevBC, iMarker_PyCustom, iMarker_Supersonic_Inlet, iMarker_Supersonic_Outlet,
   iMarker_Clamped, iMarker_ZoneInterface, iMarker_CHTInterface, iMarker_Load_Dir, iMarker_Disp_Dir,
-  iMarker_Fluid_Load, iMarker_Deform_Mesh, iMarker_Deform_Mesh_Sym_Plane, iMarker_Deform_Mesh_Internal,
+  iMarker_Fluid_Load, iMarker_Deform_Mesh, iMarker_Deform_Mesh_Sym_Plane, iMarker_Deform_Mesh_Internal, iMarker_Deform_Mesh_IL_Wall,
   iMarker_ActDiskInlet, iMarker_ActDiskOutlet,
   iMarker_Turbomachinery, iMarker_MixingPlaneInterface;
 
@@ -5620,6 +5626,7 @@ void CConfig::SetMarkers(SU2_COMPONENT val_software) {
   Marker_All_Deform_Mesh    = new unsigned short[nMarker_All] (); // Store whether the boundary is deformable.
   Marker_All_Deform_Mesh_Sym_Plane = new unsigned short[nMarker_All] (); //Store wheter the boundary will follow the deformation
   Marker_All_Deform_Mesh_Internal = new unsigned short[nMarker_All] (); //Store wheter the boundary will follow the deformation
+  Marker_All_Deform_Mesh_IL_Wall = new unsigned short[nMarker_All] (); //Store wheter the boundary will have an inflation layer.
   Marker_All_Fluid_Load     = new unsigned short[nMarker_All] (); // Store whether the boundary computes/applies fluid loads.
   Marker_All_PyCustom       = new unsigned short[nMarker_All] (); // Store whether the boundary is Python customizable.
   Marker_All_PerBound       = new short[nMarker_All] ();          // Store whether the boundary belongs to a periodic boundary.
@@ -5647,6 +5654,7 @@ void CConfig::SetMarkers(SU2_COMPONENT val_software) {
   Marker_CfgFile_Deform_Mesh          = new unsigned short[nMarker_CfgFile] ();
   Marker_CfgFile_Deform_Mesh_Sym_Plane= new unsigned short[nMarker_CfgFile] ();
   Marker_CfgFile_Deform_Mesh_Internal = new unsigned short[nMarker_CfgFile] ();
+  Marker_CfgFile_Deform_Mesh_IL_Wall  = new unsigned short[nMarker_CfgFile] ();
   Marker_CfgFile_Fluid_Load           = new unsigned short[nMarker_CfgFile] ();
   Marker_CfgFile_PerBound             = new unsigned short[nMarker_CfgFile] ();
   Marker_CfgFile_Turbomachinery       = new unsigned short[nMarker_CfgFile] ();
@@ -6069,6 +6077,13 @@ void CConfig::SetMarkers(SU2_COMPONENT val_software) {
   }
 
   for (iMarker_CfgFile = 0; iMarker_CfgFile < nMarker_CfgFile; iMarker_CfgFile++) {
+    Marker_CfgFile_Deform_Mesh_IL_Wall[iMarker_CfgFile] = NO;
+    for (iMarker_Deform_Mesh_IL_Wall = 0; iMarker_Deform_Mesh_IL_Wall < nMarker_Deform_Mesh_IL_Wall; iMarker_Deform_Mesh_IL_Wall++)
+      if (Marker_CfgFile_TagBound[iMarker_CfgFile] == Marker_Deform_Mesh_IL_Wall[iMarker_Deform_Mesh_IL_Wall])
+        Marker_CfgFile_Deform_Mesh_IL_Wall[iMarker_CfgFile] = YES;
+  }
+
+  for (iMarker_CfgFile = 0; iMarker_CfgFile < nMarker_CfgFile; iMarker_CfgFile++) {
     Marker_CfgFile_Fluid_Load[iMarker_CfgFile] = NO;
     for (iMarker_Fluid_Load = 0; iMarker_Fluid_Load < nMarker_Fluid_Load; iMarker_Fluid_Load++)
       if (Marker_CfgFile_TagBound[iMarker_CfgFile] == Marker_Fluid_Load[iMarker_Fluid_Load])
@@ -6096,7 +6111,7 @@ void CConfig::SetOutput(SU2_COMPONENT val_software, unsigned short val_izone) {
   unsigned short iMarker_Euler, iMarker_Custom, iMarker_FarField,
   iMarker_SymWall, iMarker_PerBound, iMarker_NearFieldBound,
   iMarker_Fluid_InterfaceBound, iMarker_Inlet, iMarker_Riemann,
-  iMarker_Deform_Mesh, iMarker_Deform_Mesh_Sym_Plane, iMarker_Deform_Mesh_Internal,
+  iMarker_Deform_Mesh, iMarker_Deform_Mesh_Sym_Plane, iMarker_Deform_Mesh_Internal, iMarker_Deform_Mesh_IL_Wall,
   iMarker_Fluid_Load, iMarker_Smoluchowski_Maxwell, iWall_Catalytic,
   iMarker_Giles, iMarker_Outlet, iMarker_Isothermal, iMarker_HeatFlux, iMarker_HeatTransfer,
   iMarker_EngineInflow, iMarker_EngineExhaust, iMarker_Displacement, iMarker_Damper,
@@ -7391,6 +7406,15 @@ void CConfig::SetOutput(SU2_COMPONENT val_software, unsigned short val_izone) {
     BoundaryTable.PrintFooter();
   }
 
+  if (nMarker_Deform_Mesh_IL_Wall!= 0) {
+    BoundaryTable << "Inflation layer mesh boundary";
+    for (iMarker_Deform_Mesh_IL_Wall = 0; iMarker_Deform_Mesh_IL_Wall < nMarker_Deform_Mesh_IL_Wall; iMarker_Deform_Mesh_IL_Wall++) {
+      BoundaryTable << Marker_Deform_Mesh_IL_Wall[iMarker_Deform_Mesh_IL_Wall];
+      if (iMarker_Deform_Mesh_IL_Wall < nMarker_Deform_Mesh_IL_Wall-1)  BoundaryTable << " ";
+    }
+    BoundaryTable.PrintFooter();
+  }
+
   if (nMarker_Fluid_Load != 0) {
     BoundaryTable << "Fluid loads boundary";
     for (iMarker_Fluid_Load = 0; iMarker_Fluid_Load < nMarker_Fluid_Load; iMarker_Fluid_Load++) {
@@ -7952,6 +7976,13 @@ unsigned short CConfig::GetMarker_CfgFile_Deform_Mesh_Internal(const string& val
   return Marker_CfgFile_Deform_Mesh_Internal[iMarker_CfgFile];
 }
 
+unsigned short CConfig::GetMarker_CfgFile_Deform_Mesh_IL_Wall(const string& val_marker) const {
+  unsigned short iMarker_CfgFile;
+  for (iMarker_CfgFile = 0; iMarker_CfgFile < nMarker_CfgFile; iMarker_CfgFile++)
+    if (Marker_CfgFile_TagBound[iMarker_CfgFile] == val_marker) break;
+  return Marker_CfgFile_Deform_Mesh_IL_Wall[iMarker_CfgFile];
+}
+
 unsigned short CConfig::GetMarker_CfgFile_Fluid_Load(const string& val_marker) const {
   unsigned short iMarker_CfgFile;
   for (iMarker_CfgFile = 0; iMarker_CfgFile < nMarker_CfgFile; iMarker_CfgFile++)
@@ -8098,6 +8129,9 @@ CConfig::~CConfig() {
 
   delete[] Marker_CfgFile_Deform_Mesh_Internal;
   delete[] Marker_All_Deform_Mesh_Internal;
+
+  delete[] Marker_CfgFile_Deform_Mesh_IL_Wall;
+  delete[] Marker_All_Deform_Mesh_IL_Wall;
 
   delete[] Marker_CfgFile_Fluid_Load;
   delete[] Marker_All_Fluid_Load;
@@ -8899,6 +8933,16 @@ unsigned short CConfig::GetMarker_Deform_Mesh_Internal(const string& val_marker)
     if (Marker_Deform_Mesh_Internal[iMarker] == val_marker) break;
   return iMarker;
 }
+
+unsigned short CConfig::GetMarker_Deform_Mesh_IL_Wall(const string& val_marker) const {
+  unsigned short iMarker;
+
+  /*--- Find the marker for this inflation layer boundary. ---*/
+  for (iMarker = 0; iMarker < nMarker_Deform_Mesh_IL_Wall; iMarker++)
+    if (Marker_Deform_Mesh_IL_Wall[iMarker] == val_marker) break;
+  return iMarker;
+}
+
 
 unsigned short CConfig::GetMarker_Fluid_Load(const string& val_marker) const {
   unsigned short iMarker_Fluid_Load;

@@ -190,6 +190,7 @@ private:
   nMarker_Deform_Mesh_Sym_Plane,  /*!< \brief Number of markers with symmetric deformation */
   nMarker_Deform_Mesh,            /*!< \brief Number of deformable markers at the boundary. */
   nMarker_Deform_Mesh_Internal,   /*!< \brief Number of internal markers allowed to freely deform. */
+  nMarker_Deform_Mesh_IL_Wall,    /*!< \brief Number of inflation layer markers. */
   nMarker_Fluid_Load,             /*!< \brief Number of markers in which the flow load is computed/employed. */
   nMarker_Fluid_InterfaceBound,   /*!< \brief Number of fluid interface markers. */
   nMarker_CHTInterface,           /*!< \brief Number of conjugate heat transfer interface markers. */
@@ -240,6 +241,7 @@ private:
   *Marker_Deform_Mesh,            /*!< \brief Deformable markers at the boundary. */
   *Marker_Deform_Mesh_Sym_Plane,  /*!< \brief Marker with symmetric deformation. */
   *Marker_Deform_Mesh_Internal,   /*!< \brief Internal marker allowed to freely deform. */
+  *Marker_Deform_Mesh_IL_Wall,    /*!< \brief Inflation layer markers. */
   *Marker_Fluid_Load,             /*!< \brief Markers in which the flow load is computed/employed. */
   *Marker_Fluid_InterfaceBound,   /*!< \brief Fluid interface markers. */
   *Marker_CHTInterface,           /*!< \brief Conjugate heat transfer interface markers. */
@@ -658,6 +660,7 @@ private:
   bool RBF_DataReduction;            /*!< \brief Determines use of data reduction methods for RBF mesh deformation. */
   su2double RBF_GreedyTolerance;      /*!< \brief Tolerance used in the greedy data reduction for RBF mesh deformation. */
   su2double RBF_GreedyCorrectionFactor;   /*!< \brief Correction factor used in the greedy algorithm for RBF mesh deformation. */
+  bool RBF_IL_Preservation;            /*!< \brief Determines use of inflation layer preservation method for RBF mesh deformation. */
   unsigned short FFD_Continuity;     /*!< \brief Surface continuity at the intersection with the FFD */
   unsigned short FFD_CoordSystem;    /*!< \brief Define the coordinates system */
   su2double Deform_ElasticityMod,    /*!< \brief Young's modulus for volume deformation stiffness model */
@@ -753,6 +756,7 @@ private:
   *Marker_All_Deform_Mesh,           /*!< \brief Global index for deformable markers at the boundary. */
   *Marker_All_Deform_Mesh_Sym_Plane, /*!< \brief Global index for markers with symmetric deformations. */
   *Marker_All_Deform_Mesh_Internal, /*!< \brief Global index for internal markers with free deformation. */
+  *Marker_All_Deform_Mesh_IL_Wall, /*!< \brief Global index for inflation layer markers. */
   *Marker_All_Fluid_Load,            /*!< \brief Global index for markers in which the flow load is computed/employed. */
   *Marker_All_PyCustom,              /*!< \brief Global index for Python customizable surfaces using the grid information. */
   *Marker_All_Designing,             /*!< \brief Global index for moving using the grid information. */
@@ -770,6 +774,7 @@ private:
   *Marker_CfgFile_Deform_Mesh,        /*!< \brief Global index for deformable markers at the boundary. */
   *Marker_CfgFile_Deform_Mesh_Sym_Plane, /*!< \brief Global index for markers with symmetric deformations. */
   *Marker_CfgFile_Deform_Mesh_Internal, /*!< \brief Global index for internal markers with free deformation. */
+  *Marker_CfgFile_Deform_Mesh_IL_Wall, /*!< \brief Global index for markers with inflation layers. */
   *Marker_CfgFile_Fluid_Load,         /*!< \brief Global index for markers in which the flow load is computed/employed. */
   *Marker_CfgFile_PyCustom,           /*!< \brief Global index for Python customizable surfaces using the config information. */
   *Marker_CfgFile_DV,                 /*!< \brief Global index for design variable markers using the config information. */
@@ -3502,6 +3507,14 @@ public:
    */
   void SetMarker_All_Deform_Mesh_Internal(unsigned short val_marker, unsigned short val_deform) { Marker_All_Deform_Mesh_Internal[val_marker] = val_deform; }
 
+  /*!
+   * \brief Set if a marker <i>val_marker</i> is a inflation layer marker.
+   * \param[in] val_marker - Index of the marker in which we are interested.
+   * \param[in] val_interface - 0 or 1 depending if the the marker is or not a DEFORM_MESH_IL_WALL marker.
+   */
+  void SetMarker_All_Deform_Mesh_IL_Wall(unsigned short val_marker, unsigned short val_deform) { Marker_All_Deform_Mesh_IL_Wall[val_marker] = val_deform; }
+
+
 
   /*!
    * \brief Set if a in marker <i>val_marker</i> the flow load will be computed/employed.
@@ -3660,6 +3673,13 @@ public:
    * \return 0 or 1 depending if the marker belongs to the DEFORM_MESH_SYM_PLANE subset.
    */
   unsigned short GetMarker_All_Deform_Mesh_Internal(unsigned short val_marker) const { return Marker_All_Deform_Mesh_Internal[val_marker]; }
+
+  /*!
+   * \brief Get whether marker <i>val_marker</i> is a DEFORM_MESH_IL_WALL marker
+   * \param[in] val_marker - 0 or 1 depending if the the marker belongs to the DEFORM_MESH_IL_WALL subset.
+   * \return 0 or 1 depending if the marker belongs to the DEFORM_MESH_IL_WALL subset.
+   */
+  unsigned short GetMarker_All_Deform_Mesh_IL_Wall(unsigned short val_marker) const { return Marker_All_Deform_Mesh_IL_Wall[val_marker]; }
 
   /*!
    * \brief Get whether marker <i>val_marker</i> is a Fluid_Load marker
@@ -4421,6 +4441,12 @@ public:
    * \return <code>TRUE</code> means that data reduction is used.
    */
   su2double GetRBF_DataRedCorrectionFactor(void) const { return RBF_GreedyCorrectionFactor; }
+
+  /*!
+   * \brief Determines use of inflation layer preservation method for RBF mesh deformation.
+   * \return <code>TRUE</code> means that data reduction is used.
+   */
+  bool GetRBF_IL_Preservation(void) const { return RBF_IL_Preservation; }
 
   /*!
    * \brief Get the kind of SU2 software component.
@@ -6412,6 +6438,12 @@ public:
    */
   unsigned short GetMarker_CfgFile_Deform_Mesh_Internal(const string& val_marker) const;
 
+    /*!
+   * \brief Get the DEFORM_MESH_IL_WALL information from the config definition for the marker <i>val_marker</i>.
+   * \return DEFORM_MESH_IL_WALL information of the boundary in the config information for the marker <i>val_marker</i>.
+   */
+  unsigned short GetMarker_CfgFile_Deform_Mesh_IL_Wall(const string& val_marker) const;
+
   /*!
    * \brief Get the Fluid_Load information from the config definition for the marker <i>val_marker</i>.
    * \return Fluid_Load information of the boundary in the config information for the marker <i>val_marker</i>.
@@ -6774,13 +6806,20 @@ public:
   unsigned short GetMarker_Deform_Mesh_Internal(const string& val_marker) const;
 
   /*!
+   * \brief Get the internal index for a DEFORM_MESH_IL_WALL boundary <i>val_marker</i>.
+   * \return Internal index for a DEFORM_MESH_IL_WALL boundary <i>val_marker</i>.
+   */
+  unsigned short GetMarker_Deform_Mesh_IL_Wall(const string& val_marker) const;
+
+  /*!
    * \brief Get a bool for whether the marker is deformed. <i>val_marker</i>.
    * \param[in] val_marker - Name of the marker to test.
    * \return True if the marker is a deforming boundary <i>val_marker</i>.
    */
   inline bool GetMarker_Deform_Mesh_Bool(const string& val_marker) const {
     return GetMarker_Deform_Mesh(val_marker) < nMarker_Deform_Mesh ||
-        GetMarker_Deform_Mesh_Sym_Plane(val_marker) < nMarker_Deform_Mesh_Sym_Plane;
+        GetMarker_Deform_Mesh_Sym_Plane(val_marker) < nMarker_Deform_Mesh_Sym_Plane ||
+        GetMarker_Deform_Mesh_IL_Wall(val_marker) < nMarker_Deform_Mesh_IL_Wall; 
   }
 
   /*!
@@ -6818,7 +6857,15 @@ public:
    *         has the marker <i>val_marker</i>.
    */
   string GetMarker_Deform_Mesh_Sym_Plane_TagBound(unsigned short val_marker) const { return Marker_Deform_Mesh_Sym_Plane[val_marker]; }
-
+  
+  /*!
+   * \brief Get the name of the DEFORM_MESH_IL_WALL boundary defined in the geometry file.
+   * \param[in] val_marker - Value of the marker in which we are interested.
+   * \return Name that is in the geometry file for the surface that
+   *         has the marker <i>val_marker</i>.
+   */
+  string GetMarker_Deform_Mesh_IL_Wall_TagBound(unsigned short val_marker) const { return Marker_Deform_Mesh_IL_Wall[val_marker]; }
+  
   /*!
    * \brief Get the name of the Fluid_Load boundary defined in the geometry file.
    * \param[in] val_marker - Value of the marker in which we are interested.
