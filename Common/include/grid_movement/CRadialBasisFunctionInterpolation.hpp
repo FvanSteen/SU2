@@ -42,6 +42,9 @@ protected:
   vector<CRadialBasisFunctionNode*>* ControlNodes = nullptr;  /*!< \brief Vector with control nodes*/
   vector<CRadialBasisFunctionNode*> BoundNodes;               /*!< \brief Vector with boundary nodes.*/
   vector<CRadialBasisFunctionNode*> ReducedControlNodes;      /*!< \brief Vector with selected control nodes in data reduction algorithm. */
+  vector<CRadialBasisFunctionNode*> IL_WallNodes;             /*!< \brief Vector with inflation layer wall nodes. */
+  vector<CRadialBasisFunctionNode*> IL_EdgeNodes;             /*!< \brief Vector with inflation layer edge nodes. */
+  vector<unsigned long>** IL_internalNodes;
   
   
   vector<su2double> CtrlNodeDeformation;  /*!< \brief Control Node Deformation.*/ 
