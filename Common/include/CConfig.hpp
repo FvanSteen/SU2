@@ -3064,6 +3064,12 @@ public:
   unsigned short GetnMarker_Deform_Mesh(void) const { return nMarker_Deform_Mesh; }
 
   /*!
+   * \brief Get the total number of inflation layer markers at the boundary.
+   * \return Total number of deformable markers at the boundary.
+   */
+  unsigned short GetnMarker_Deform_Mesh_IL_Wall(void) const { return nMarker_Deform_Mesh_IL_Wall; }
+
+  /*!
    * \brief Get the total number of markers in which the flow load is computed/employed.
    * \return Total number of markers in which the flow load is computed/employed.
    */
