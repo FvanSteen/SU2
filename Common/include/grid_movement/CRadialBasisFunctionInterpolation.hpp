@@ -39,7 +39,7 @@
 class CRadialBasisFunctionInterpolation : public CVolumetricMovement {
 protected:
 
-  vector<CRadialBasisFunctionNode*>* ControlNodes = nullptr;  /*!< \brief Vector with control nodes*/
+  vector<vector<CRadialBasisFunctionNode*>*> ControlNodes;    /*!< \brief Vector of vectors with control nodes*/
   vector<CRadialBasisFunctionNode*> BoundNodes;               /*!< \brief Vector with boundary nodes.*/
   vector<CRadialBasisFunctionNode*> ReducedControlNodes;      /*!< \brief Vector with selected control nodes in data reduction algorithm. */
   vector<CRadialBasisFunctionNode*> IL_WallNodes;             /*!< \brief Vector with inflation layer wall nodes. */
@@ -51,6 +51,7 @@ protected:
   vector<su2double> InterpCoeff;          /*!< \brief Control node interpolation coefficients.*/
 
   unsigned long nCtrlNodesGlobal{0};      /*!< \brief Total number of control nodes.*/
+  unsigned long nCtrlNodesLocal{0};    /*!< \brief Local number of control nodes.*/
   su2activematrix CtrlCoords;             /*!< \brief Coordinates of the control nodes.*/
 
   su2double MaxErrorGlobal{0.0};          /*!< \brief Maximum error data reduction algorithm.*/
@@ -167,7 +168,7 @@ public:
   /*! 
   * \brief Compute global number of control nodes.
   */
-  void Get_nCtrlNodesGlobal();
+  void Get_nCtrlNodes();
 
   /*! 
   * \brief Compute interpolation error.

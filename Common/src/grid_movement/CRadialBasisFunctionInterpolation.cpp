@@ -151,7 +151,7 @@ void CRadialBasisFunctionInterpolation::SolveRBF_System(CGeometry* geometry, CCo
       }
 
       /*--- Obtaining the global number of control nodes. ---*/
-      Get_nCtrlNodesGlobal();
+      Get_nCtrlNodes();
 
       /*--- Obtaining the interpolation coefficients. ---*/
       GetInterpCoeffs(geometry, config, type, radius);
@@ -229,19 +229,21 @@ void CRadialBasisFunctionInterpolation::SetBoundNodes(CGeometry* geometry, CConf
 
 void CRadialBasisFunctionInterpolation::SetCtrlNodes(CConfig* config){
   
+  ControlNodes.resize(1);
+
   /*--- Assigning the control nodes based on whether data reduction is applied or not. ---*/
   if(config->GetRBF_DataReduction()){
 
     /*--- Control nodes are an empty set ---*/
-    ControlNodes = &ReducedControlNodes;
+    ControlNodes[0] = &ReducedControlNodes;
   }else{
 
     /*--- Control nodes are the boundary nodes ---*/
-    ControlNodes = &BoundNodes;
+    ControlNodes[0] = &BoundNodes;
   }
 
   /*--- Obtaining the total number of control nodes. ---*/
-  Get_nCtrlNodesGlobal();
+  Get_nCtrlNodes();
 
 };
 
@@ -286,41 +288,39 @@ void CRadialBasisFunctionInterpolation::ComputeInterpolationMatrix(CGeometry* ge
 void CRadialBasisFunctionInterpolation::SetDeformation(CGeometry* geometry, CConfig* config){
 
   /* --- Initialization of the deformation vector ---*/
-  CtrlNodeDeformation.resize(ControlNodes->size()*nDim, 0.0); 
+  CtrlNodeDeformation.resize(nCtrlNodesLocal * nDim, 0.0); 
 
   /*--- If requested (no by default) impose the surface deflections in
     increments and solve the grid deformation with
     successive small deformations. ---*/
   const su2double VarIncrement = 1.0 / ((su2double)config->GetGridDef_Nonlinear_Iter());
 
-  /*--- Loop over the control nodes ---*/
-  for (auto iNode = 0ul; iNode < ControlNodes->size(); iNode++) {
-    
-     /*--- Setting nonzero displacement of the moving markers, else setting zero displacement for static markers---*/
-    if (config->GetMarker_All_Moving((*ControlNodes)[iNode]->GetMarker())) {    
-      for (auto iDim = 0u; iDim < nDim; iDim++) {
-        CtrlNodeDeformation[iNode*nDim + iDim] = SU2_TYPE::GetValue(geometry->vertex[(*ControlNodes)[iNode]->GetMarker()][(*ControlNodes)[iNode]->GetVertex()]->GetVarCoord()[iDim] * VarIncrement);
-      }
-    }
-    
-    else{
-      for (auto iDim = 0u; iDim < nDim; iDim++) {
-        CtrlNodeDeformation[iNode*nDim + iDim] = 0.0;
-      }
+
+  unsigned long idx = 0;
+
+
+  for(auto iControlNodes : ControlNodes){
+    /*--- Loop over the control nodes ---*/
+    for (auto iNode = 0ul; iNode < iControlNodes->size(); iNode++) {
+      
+      /*--- Setting displacement of the control nodes ---*/
+      auto var_coord = geometry->vertex[(*iControlNodes)[iNode]->GetMarker()][(*iControlNodes)[iNode]->GetVertex()]->GetVarCoord();
+      
+      for ( auto iDim = 0u; iDim < nDim; iDim++ ){
+        CtrlNodeDeformation[idx++] = var_coord[iDim] * VarIncrement;
+      }  
+
     }
   }
   
   /*--- In case of a parallel computation, the deformation of all control nodes is send to the master process ---*/
   #ifdef HAVE_MPI
     
-    /*--- Local number of control nodes ---*/
-    unsigned long Local_nControlNodes = ControlNodes->size();
-
     /*--- Array containing the local number of control nodes ---*/
     unsigned long Local_nControlNodesArr[size];
 
     /*--- gathering local control node coordinate sizes on all processes. ---*/
-    SU2_MPI::Allgather(&Local_nControlNodes, 1, MPI_UNSIGNED_LONG, Local_nControlNodesArr, 1, MPI_UNSIGNED_LONG, SU2_MPI::GetComm()); 
+    SU2_MPI::Allgather(&nCtrlNodesLocal, 1, MPI_UNSIGNED_LONG, Local_nControlNodesArr, 1, MPI_UNSIGNED_LONG, SU2_MPI::GetComm()); 
 
     /*--- Gathering all deformation vectors on the master node ---*/
     if(rank==MASTER_NODE){
@@ -340,126 +340,128 @@ void CRadialBasisFunctionInterpolation::SetDeformation(CGeometry* geometry, CCon
     }else{
 
       /*--- Sending the local deformation vector to the master node ---*/
-      SU2_MPI::Send(CtrlNodeDeformation.data(), Local_nControlNodes*nDim, MPI_DOUBLE, MASTER_NODE, 0, SU2_MPI::GetComm());  
+      SU2_MPI::Send(CtrlNodeDeformation.data(), nCtrlNodesLocal*nDim, MPI_DOUBLE, MASTER_NODE, 0, SU2_MPI::GetComm());  
     } 
   #endif   
 }
 
 void CRadialBasisFunctionInterpolation::SetInternalNodes(CGeometry* geometry, CConfig* config, vector<unsigned long>& internalNodes){ 
 
+  if(config->GetRBF_IL_Preservation()){
+    //TODO add as config options
+    su2double IL_height = 0.0714027493868399;
 
-  //TODO add as config options
-  su2double IL_height = 0.0714027493868399;
+    /*--- ADT for wall elements ---*/ 
+    vector<su2double> surfaceCoor;
+    vector<unsigned long> surfaceConn;
+    vector<unsigned long> elemIDs;
+    vector<unsigned short> VTK_TypeElem;
+    vector<unsigned short> markerIDs;
 
-  /*--- ADT for wall elements ---*/ 
-  vector<su2double> surfaceCoor;
-  vector<unsigned long> surfaceConn;
-  vector<unsigned long> elemIDs;
-  vector<unsigned short> VTK_TypeElem;
-  vector<unsigned short> markerIDs;
-
-  su2double dist;
-  int rankID;
+    su2double dist;
+    int rankID;
 
 
-  unsigned short iWallMarker = 0;
-  // construction of ADT for elements
-  if(config->GetRBF_IL_Preservation()){ //TODO make function for this that returns pointer to the ad tree
+    unsigned short iWallMarker = 0;
+    // construction of ADT for elements
+    if(config->GetRBF_IL_Preservation()){ //TODO make function for this that returns pointer to the ad tree
 
-    IL_internalNodes = new vector<unsigned long>*[config->GetnMarker_Deform_Mesh_IL_Wall()];
-    for( auto iMarker = 0u; iMarker < config->GetnMarker_Deform_Mesh_IL_Wall(); iMarker++){
-      IL_internalNodes[iMarker] = new vector<unsigned long>;
-    }
+      IL_internalNodes = new vector<unsigned long>*[config->GetnMarker_Deform_Mesh_IL_Wall()];
+      for( auto iMarker = 0u; iMarker < config->GetnMarker_Deform_Mesh_IL_Wall(); iMarker++){
+        IL_internalNodes[iMarker] = new vector<unsigned long>;
+      }
 
-    vector<unsigned long> wallVertices(geometry->GetnPoint(), 0);
+      vector<unsigned long> wallVertices(geometry->GetnPoint(), 0);
 
-    for(auto iMarker = 0u; iMarker < config->GetnMarker_All(); iMarker++){ // loop through wall node boundaries
-      
-      if(config->GetMarker_All_Deform_Mesh_IL_Wall(iMarker)){
+      for(auto iMarker = 0u; iMarker < config->GetnMarker_All(); iMarker++){ // loop through wall node boundaries
+        
+        if(config->GetMarker_All_Deform_Mesh_IL_Wall(iMarker)){
 
-        for (auto iElem = 0ul; iElem < geometry->nElem_Bound[iMarker]; iElem++) {
-      
-          const unsigned short VTK_Type = geometry->bound[iMarker][iElem]->GetVTK_Type();
-          const unsigned short nDOFsPerElem = geometry->bound[iMarker][iElem]->GetnNodes();
-          
-          markerIDs.push_back(iWallMarker);
-          VTK_TypeElem.push_back(VTK_Type);
-          elemIDs.push_back(iElem);
+          for (auto iElem = 0ul; iElem < geometry->nElem_Bound[iMarker]; iElem++) {
+        
+            const unsigned short VTK_Type = geometry->bound[iMarker][iElem]->GetVTK_Type();
+            const unsigned short nDOFsPerElem = geometry->bound[iMarker][iElem]->GetnNodes();
+            
+            markerIDs.push_back(iWallMarker);
+            VTK_TypeElem.push_back(VTK_Type);
+            elemIDs.push_back(iElem);
 
-          for(auto jNode = 0u; jNode < nDOFsPerElem; jNode++){
-            auto iNode = geometry->bound[iMarker][iElem]->GetNode(jNode);
-            wallVertices[iNode] = 1;
-            surfaceConn.push_back(geometry->bound[iMarker][iElem]->GetNode(jNode));
+            for(auto jNode = 0u; jNode < nDOFsPerElem; jNode++){
+              auto iNode = geometry->bound[iMarker][iElem]->GetNode(jNode);
+              wallVertices[iNode] = 1;
+              surfaceConn.push_back(geometry->bound[iMarker][iElem]->GetNode(jNode));
+            }
           }
+          iWallMarker++;
         }
-        iWallMarker++;
       }
-    }
-  
-
-    // get number of wall nodes
-    unsigned long nWallNodes = 0;//GetnWallVertices(config);
-
-    //loop over all nodes
-    for (auto iNode = 0ul; iNode < geometry->GetnPoint(); iNode++) {
-      // in case of wall node update?
-      if (wallVertices[iNode]) {
-        wallVertices[iNode] = nWallNodes++;
-
-        for (auto iDim = 0u; iDim < nDim; iDim++) surfaceCoor.push_back(geometry->nodes->GetCoord(iNode, iDim));
-      }
-    }
-    for(auto iNode = 0u; iNode < surfaceConn.size(); iNode++) surfaceConn[iNode] = wallVertices[surfaceConn[iNode]];
     
-  }
 
-  CADTElemClass ElemADT(nDim, surfaceCoor, surfaceConn, VTK_TypeElem, markerIDs, elemIDs, true);
+      // get number of wall nodes
+      unsigned long nWallNodes = 0;//GetnWallVertices(config);
 
-  /*--- Looping over all nodes and check if part of domain and not on boundary ---*/
-  unsigned short nearest_marker; unsigned long nearest_elem;
-  for (auto iNode = 0ul; iNode < geometry->GetnPoint(); iNode++) {    
-    if (!geometry->nodes->GetBoundary(iNode)) {
-      ElemADT.DetermineNearestElement(geometry->nodes->GetCoord(iNode), dist, nearest_marker, nearest_elem, rankID);
-      // cout << geometry->nodes->GetCoord(iNode)[0] << "\t" << geometry->nodes->GetCoord(iNode)[1] << "\t"<<  dist << "\t" << nearest_marker << "\t" << nearest_elem << endl;
-      if(abs(dist-IL_height) < 1e-12){
-        // cout << geometry->nodes->GetCoord(iNode)[0] << "\t" << geometry->nodes->GetCoord(iNode)[1] << "\t"<<  dist << "\t" << nearest_marker << "\t" << nearest_elem << endl;
-        IL_EdgeNodes.push_back(new CRadialBasisFunctionNode(iNode, nearest_marker, nearest_elem));
-      }else if(dist-IL_height < 0){
-        IL_internalNodes[nearest_marker]->push_back(iNode);
-      }else{
-        internalNodes.push_back(iNode);
+      //loop over all nodes
+      for (auto iNode = 0ul; iNode < geometry->GetnPoint(); iNode++) {
+        // in case of wall node update?
+        if (wallVertices[iNode]) {
+          wallVertices[iNode] = nWallNodes++;
+
+          for (auto iDim = 0u; iDim < nDim; iDim++) surfaceCoor.push_back(geometry->nodes->GetCoord(iNode, iDim));
+        }
       }
-    }   
-  }  
+      for(auto iNode = 0u; iNode < surfaceConn.size(); iNode++) surfaceConn[iNode] = wallVertices[surfaceConn[iNode]];
+      
+    }
 
-  //TODO remove these checks
-  ofstream ofile;
-  ofile.open("il_wall_nodes.txt");
-  for(auto x : IL_WallNodes){
-    ofile << x->GetIndex() << endl;
+    CADTElemClass ElemADT(nDim, surfaceCoor, surfaceConn, VTK_TypeElem, markerIDs, elemIDs, true);
+
+    /*--- Looping over all nodes and check if part of domain and not on boundary ---*/
+    unsigned short nearest_marker; unsigned long nearest_elem;
+    for (auto iNode = 0ul; iNode < geometry->GetnPoint(); iNode++) {    
+      if (!geometry->nodes->GetBoundary(iNode)) {
+        ElemADT.DetermineNearestElement(geometry->nodes->GetCoord(iNode), dist, nearest_marker, nearest_elem, rankID);
+        // cout << geometry->nodes->GetCoord(iNode)[0] << "\t" << geometry->nodes->GetCoord(iNode)[1] << "\t"<<  dist << "\t" << nearest_marker << "\t" << nearest_elem << endl;
+        if(abs(dist-IL_height) < 1e-12){
+          // cout << geometry->nodes->GetCoord(iNode)[0] << "\t" << geometry->nodes->GetCoord(iNode)[1] << "\t"<<  dist << "\t" << nearest_marker << "\t" << nearest_elem << endl;
+          IL_EdgeNodes.push_back(new CRadialBasisFunctionNode(iNode, nearest_marker, nearest_elem));
+        }else if(dist-IL_height < 0){
+          IL_internalNodes[nearest_marker]->push_back(iNode);
+        }else{
+          internalNodes.push_back(iNode);
+        }
+      }   
+    }  
+
+    //TODO remove these checks
+    ofstream ofile;
+    ofile.open("il_wall_nodes.txt");
+    for(auto x : IL_WallNodes){
+      ofile << x->GetIndex() << endl;
+    }
+    ofile.close();
+
+    ofile.open("il_edge_nodes.txt");
+    for(auto x : IL_EdgeNodes){
+      ofile << x->GetIndex() << endl;
+    }
+    ofile.close();
+
+    ofile.open("il_internal_nodes.txt");
+    // for(auto x : IL_internalNodes){
+    for(auto y : *IL_internalNodes[0]){
+      ofile << y << endl;
+    }
+    // }
+    ofile.close();
+  }else{
+
+    /*--- Looping over all nodes and check if part of domain and not on boundary ---*/
+    for (auto iNode = 0ul; iNode < geometry->GetnPoint(); iNode++) {    
+      if (!geometry->nodes->GetBoundary(iNode)) {
+        internalNodes.push_back(iNode);
+      }   
+    }  
   }
-  ofile.close();
-
-  ofile.open("il_edge_nodes.txt");
-  for(auto x : IL_EdgeNodes){
-    ofile << x->GetIndex() << endl;
-  }
-  ofile.close();
-
-  ofile.open("il_internal_nodes.txt");
-  // for(auto x : IL_internalNodes){
-  for(auto y : *IL_internalNodes[0]){
-    ofile << y << endl;
-  }
-  // }
-  ofile.close();
-
-  /*--- Looping over all nodes and check if part of domain and not on boundary ---*
-  for (auto iNode = 0ul; iNode < geometry->GetnPoint(); iNode++) {    
-    if (!geometry->nodes->GetBoundary(iNode)) {
-      internalNodes.push_back(iNode);
-    }   
-  }  
 
   /*--- Adding nodes on markers considered as internal nodes ---*/
   for (auto iMarker = 0u; iMarker < geometry->GetnMarker(); iMarker++){
@@ -623,10 +625,11 @@ void CRadialBasisFunctionInterpolation::UpdateBoundCoords(CGeometry* geometry, C
   }
   
   /*--- Applying the surface deformation, which are stored in the deformation vector ---*/
-  for(auto jNode = 0ul; jNode < ControlNodes->size(); jNode++){ 
-    if(config->GetMarker_All_Moving((*ControlNodes)[jNode]->GetMarker())){
+  unsigned long idx = 0;
+  for ( auto iControlNodes : ControlNodes){
+    for(auto jNode = 0ul; jNode < iControlNodes->size(); jNode++){ 
       for(auto iDim = 0u; iDim < nDim; iDim++){
-          geometry->nodes->AddCoord((*ControlNodes)[jNode]->GetIndex(), iDim, CtrlNodeDeformation[jNode*nDim + iDim]); 
+          geometry->nodes->AddCoord((*iControlNodes)[jNode]->GetIndex(), iDim, CtrlNodeDeformation[idx++]); 
       }
     }
   } 
@@ -686,19 +689,22 @@ void CRadialBasisFunctionInterpolation::SetCtrlNodeCoords(CGeometry* geometry){
   CtrlCoords.resize(nCtrlNodesGlobal*nDim);
   
   /*--- Array containing the local control node coordinates ---*/ 
-  su2double localCoords[nDim*ControlNodes->size()];
+  su2double localCoords[nDim * nCtrlNodesLocal];
   
   /*--- Storing local control node coordinates ---*/
-  for(auto iNode = 0ul; iNode < ControlNodes->size(); iNode++){
-    auto coord = geometry->nodes->GetCoord((*ControlNodes)[iNode]->GetIndex());  
-    for ( auto iDim = 0u ; iDim < nDim; iDim++ ){
-      localCoords[ iNode * nDim + iDim ] = coord[iDim];
+  unsigned long idx = 0;
+  for(auto iControlNodes : ControlNodes){
+    for( auto iNode = 0ul; iNode < iControlNodes->size(); iNode++ ){
+      auto coord = geometry->nodes->GetCoord((*iControlNodes)[iNode]->GetIndex());  
+      for ( auto iDim = 0u ; iDim < nDim; iDim++ ){
+        localCoords[ idx++ ] = coord[iDim];
+      }
     }
   }
 
   /*--- Gathering local control node coordinate sizes on all processes. ---*/
   int LocalCoordsSizes[size];
-  int localCoordsSize = nDim*ControlNodes->size();
+  int localCoordsSize = nDim * nCtrlNodesLocal;
   SU2_MPI::Allgather(&localCoordsSize, 1, MPI_INT, LocalCoordsSizes, 1, MPI_INT, SU2_MPI::GetComm()); 
 
   /*--- Array containing the starting indices for the allgatherv operation */
@@ -943,13 +949,15 @@ void CRadialBasisFunctionInterpolation::AddControlNode(vector<unsigned long>& ma
 }
 
 
-void CRadialBasisFunctionInterpolation::Get_nCtrlNodesGlobal(){
+void CRadialBasisFunctionInterpolation::Get_nCtrlNodes(){
   /*--- Determining the global number of control nodes ---*/
   
   /*--- Local number of control nodes ---*/
-  unsigned long local_nControlNodes = ControlNodes->size();
+  nCtrlNodesLocal = 0;
+  for(auto iControlNodes : ControlNodes) { nCtrlNodesLocal += iControlNodes->size(); }
+  // unsigned long local_nControlNodes = ControlNodes->size();
 
   /*--- Summation of local number of control nodes ---*/
-    SU2_MPI::Allreduce(&local_nControlNodes, &nCtrlNodesGlobal, 1, MPI_UNSIGNED_LONG, MPI_SUM, SU2_MPI::GetComm());
+  SU2_MPI::Allreduce(&nCtrlNodesLocal, &nCtrlNodesGlobal, 1, MPI_UNSIGNED_LONG, MPI_SUM, SU2_MPI::GetComm());
 
 }
