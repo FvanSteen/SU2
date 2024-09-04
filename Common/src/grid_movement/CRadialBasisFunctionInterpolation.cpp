@@ -90,10 +90,11 @@ void CRadialBasisFunctionInterpolation::SetVolume_Deformation(CGeometry* geometr
 
     /*--- Solving the RBF system, resulting in the interpolation coefficients ---*/
     SolveRBF_System(geometry, config, kindRBF, radius);
-   
+
+
     /*--- Updating the coordinates of the grid ---*/
     UpdateGridCoord(geometry, config, kindRBF, radius, internalNodes);
-
+    
     if(UpdateGeo){
       UpdateDualGrid(geometry, config);
     }
@@ -165,6 +166,13 @@ void CRadialBasisFunctionInterpolation::SolveRBF_System(CGeometry* geometry, CCo
 
     }  
   }else{
+    ControlNodes.resize(1);
+    ControlNodes[0] = &IL_WallNodes;
+    Get_nCtrlNodes();
+    /*--- First deforming the inflation layer ---*/
+    if(config->GetRBF_IL_Preservation()){
+      GetIL_Deformation(geometry, config, type, radius);
+    }
 
     /*--- Obtaining the interpolation coefficients. ---*/
     GetInterpCoeffs(geometry, config, type, radius);
@@ -225,6 +233,16 @@ void CRadialBasisFunctionInterpolation::SetBoundNodes(CGeometry* geometry, CConf
   /*--- Obtaining unique set ---*/
   BoundNodes.resize(std::distance(BoundNodes.begin(), unique(BoundNodes.begin(), BoundNodes.end(), HasEqualIndex)));
 
+  ofstream of;
+  of.open("boundnodes.txt");
+  for(auto x : BoundNodes){ of << x->GetIndex() << endl;}
+  of.close();
+
+  of.open("wallnodes.txt");
+  for(auto x : IL_WallNodes){ of << x->GetIndex() << endl;}
+  of.close();
+
+
 }
 
 void CRadialBasisFunctionInterpolation::SetCtrlNodes(CConfig* config){
@@ -236,10 +254,18 @@ void CRadialBasisFunctionInterpolation::SetCtrlNodes(CConfig* config){
 
     /*--- Control nodes are an empty set ---*/
     ControlNodes[0] = &ReducedControlNodes;
-  }else{
 
-    /*--- Control nodes are the boundary nodes ---*/
-    ControlNodes[0] = &BoundNodes;
+  }else{
+    /*--- In case of inflation layer preservation ---*/    
+    if(config->GetRBF_IL_Preservation()){
+
+      /*--- Control nodes are the inflation layer wall nodes*/
+      ControlNodes[0] = &IL_WallNodes;
+
+    }else{
+      /*--- Control nodes are the boundary nodes ---*/
+      ControlNodes[0] = &BoundNodes;
+    }
   }
 
   /*--- Obtaining the total number of control nodes. ---*/
@@ -295,21 +321,30 @@ void CRadialBasisFunctionInterpolation::SetDeformation(CGeometry* geometry, CCon
     successive small deformations. ---*/
   const su2double VarIncrement = 1.0 / ((su2double)config->GetGridDef_Nonlinear_Iter());
 
-
   unsigned long idx = 0;
-
 
   for(auto iControlNodes : ControlNodes){
     /*--- Loop over the control nodes ---*/
     for (auto iNode = 0ul; iNode < iControlNodes->size(); iNode++) {
       
+      /*--- Obtaining displacement of ctrl node ---*/
+      su2double* var_coord;
+
+      /*--- Node is an inflation layer edge node if not part of any boundary, 
+              its displacement is stored as a member of CRadialBasisFunctionNode. ---*/
+      if(geometry->nodes->GetBoundary((*iControlNodes)[iNode]->GetIndex())){
+        
+        var_coord = geometry->vertex[(*iControlNodes)[iNode]->GetMarker()][(*iControlNodes)[iNode]->GetVertex()]->GetVarCoord();
+     
+      }else{
+
+        var_coord = (*iControlNodes)[iNode]->GetVarCoord();
+      }
+
       /*--- Setting displacement of the control nodes ---*/
-      auto var_coord = geometry->vertex[(*iControlNodes)[iNode]->GetMarker()][(*iControlNodes)[iNode]->GetVertex()]->GetVarCoord();
-      
       for ( auto iDim = 0u; iDim < nDim; iDim++ ){
         CtrlNodeDeformation[idx++] = var_coord[iDim] * VarIncrement;
       }  
-
     }
   }
   
@@ -959,5 +994,182 @@ void CRadialBasisFunctionInterpolation::Get_nCtrlNodes(){
 
   /*--- Summation of local number of control nodes ---*/
   SU2_MPI::Allreduce(&nCtrlNodesLocal, &nCtrlNodesGlobal, 1, MPI_UNSIGNED_LONG, MPI_SUM, SU2_MPI::GetComm());
+
+}
+
+void CRadialBasisFunctionInterpolation::GetIL_Deformation(CGeometry* geometry, CConfig* config, const RADIAL_BASIS& type, const su2double radius){
+ 
+
+  /*--- Solve for interpolation coefficient using solely wall nodes as ctrl nodes ---*/
+  GetInterpCoeffs(geometry, config, type, radius);
+  
+  /*--- Obtain the required deformation of the inflation layer edge ---*/
+  GetIL_EdgeDeformation(geometry, config, type, radius);
+
+  /*--- Adding the inflation layer edge nodes to the control nodes ---*/
+  ControlNodes.push_back(&IL_EdgeNodes);
+  Get_nCtrlNodes();
+
+  /*--- Solve for interpolation coefficients ---*/
+  GetInterpCoeffs(geometry, config, type, radius);
+
+  /*--- Updating the inflation layer coordinates ---*/ 
+  UpdateInflationLayerCoords(geometry, type, radius);
+  
+  /*--- Set control nodes for the domain outside inflation layer ---*/
+  ControlNodes.resize(2);
+  ControlNodes[0] = &BoundNodes;
+  ControlNodes[1] = &IL_EdgeNodes;  
+  Get_nCtrlNodes();
+}
+
+void CRadialBasisFunctionInterpolation::GetIL_EdgeDeformation(CGeometry* geometry, CConfig* config, const RADIAL_BASIS& type, const su2double radius){
+
+  /*--- Inflation layer height ---*/
+  su2double IL_height = config->GetRBF_IL_Height();
+
+  /*--- Number of deformation steps ---*/
+  auto Nonlinear_iter = config->GetGridDef_Nonlinear_Iter();
+
+  /*--- Obtaining free displacement of the inflation layer edge nodes ---*/
+  for(auto iNode = 0ul; iNode < IL_EdgeNodes.size(); iNode++){
+    
+    /*--- Obtaining coordinates ---*/
+    auto coord = geometry->nodes->GetCoord(IL_EdgeNodes[iNode]->GetIndex());
+
+    /*--- Setting new coord equal to old coord ---*/
+    IL_EdgeNodes[iNode]->SetNewCoord(coord, nDim);
+
+    /*--- Loop for contribution of each control node ---*/
+    for(auto jNode = 0ul; jNode < nCtrlNodesGlobal; jNode++){
+
+      /*--- Determine distance between considered internal and control node ---*/
+      auto dist = GeometryToolbox::Distance(nDim, CtrlCoords[jNode*nDim], geometry->nodes->GetCoord(IL_EdgeNodes[iNode]->GetIndex()));
+
+      /*--- Evaluate RBF based on distance ---*/
+      auto rbf = SU2_TYPE::GetValue(CRadialBasisFunction::Get_RadialBasisValue(type, radius, dist));
+      
+      /*--- Add contribution to new coordinates -- -*/
+      for(auto iDim = 0u; iDim < nDim; iDim++){
+        IL_EdgeNodes[iNode]->AddNewCoord(rbf*InterpCoeff[jNode*nDim+iDim], iDim);
+      }
+    }
+  }  
+
+  /*--- Assembly of AD tree containing the updated wall nodes ---*/
+  vector<su2double> Coord_bound(nDim * IL_WallNodes.size());
+  vector<unsigned long> PointIDs(IL_WallNodes.size());
+  unsigned long pointID;
+  su2double dist; 
+  int rankID;
+  unsigned long ii = 0;
+
+  /*--- Loop through wall nodes ---*/
+  for( auto jNode = 0ul; jNode < IL_WallNodes.size(); jNode++){
+
+    /*--- Assign identifier ---*/
+    PointIDs[jNode] = jNode;
+
+    for(auto iDim = 0u; iDim < nDim; iDim++){
+
+      /*--- Applying the deformation ---*/
+      geometry->nodes->AddCoord(IL_WallNodes[jNode]->GetIndex(), iDim, CtrlNodeDeformation[jNode * nDim + iDim]);
+      
+      /*--- store updated position ---*/
+      Coord_bound[ii++] = geometry->nodes->GetCoord(IL_WallNodes[jNode]->GetIndex())[iDim];
+    }
+  }
+
+  /*--- Update of boundary to obtain normals of updated geometry ---*/
+  geometry->SetBoundControlVolume(config, UPDATE);
+
+  /*--- AD tree with updated wall positions ---*/
+  CADTPointsOnlyClass WallADT(nDim, IL_WallNodes.size(), Coord_bound.data(), PointIDs.data(), true);
+  
+  /*--- Finding the required displacement of the edge nodes ---*/
+
+  /*--- Distance to nearest wall node and required added inflation layer thickness ---*/
+  su2double dist_vec[nDim];
+  su2double added_thickness;
+
+  /*--- Loop over inflation layer wall nodes ---*/
+  for(auto iNode = 0ul; iNode < IL_EdgeNodes.size(); iNode++){      
+    
+    /*--- Get nearest wall node ---*/
+    WallADT.DetermineNearestNode(IL_EdgeNodes[iNode]->GetNewCoord(), dist, pointID, rankID);
+
+    /*--- Get normal and make it a unit vector ---*/
+    auto normal = geometry->vertex[IL_WallNodes[pointID]->GetMarker()][IL_WallNodes[pointID]->GetVertex()]->GetNormal(); 
+    auto normal_length = GeometryToolbox::Norm(nDim, normal);
+    for(auto iDim = 0u; iDim < nDim; iDim++){
+      normal[iDim] = normal[iDim]/normal_length;
+    }
+
+    /*--- Get distance vector from edge node to nearest wall node ---*/
+    GeometryToolbox::Distance(nDim, IL_EdgeNodes[iNode]->GetNewCoord(), geometry->nodes->GetCoord(IL_WallNodes[pointID]->GetIndex()), dist_vec);
+
+    /*--- Dot product to obtain current inflation layer height ---*/
+    auto dp = GeometryToolbox::DotProduct(nDim, normal, dist_vec);
+
+    /*--- Get required change in inflation layer thickness ---*/
+    added_thickness = - IL_height + abs(dp); // TODO sign keeps changing somehow (started as +, - for 3D | -, + for 2D)
+
+    /*--- Apply required change in coordinates and store variation w.r.t. initial coordinates. ---*/
+    su2double var_coord[nDim];
+    for(auto iDim = 0u; iDim < nDim; iDim++){
+      IL_EdgeNodes[iNode]->AddNewCoord(added_thickness * normal[iDim], iDim);
+      var_coord[iDim] = (IL_EdgeNodes[iNode]->GetNewCoord()[iDim] - geometry->nodes->GetCoord(IL_EdgeNodes[iNode]->GetIndex())[iDim])*Nonlinear_iter;
+    }
+
+    IL_EdgeNodes[iNode]->SetVarCoord(var_coord, nDim);
+  }
+
+  /*--- Set wall back to initial position for accurate calculation of RBFs ---*/
+  for( auto jNode = 0ul; jNode < IL_WallNodes.size(); jNode++){
+    for(auto iDim = 0u; iDim < nDim; iDim++){
+      geometry->nodes->AddCoord(IL_WallNodes[jNode]->GetIndex(), iDim, -CtrlNodeDeformation[jNode * nDim + iDim]);
+    }
+  } 
+
+  /*--- Update wall boundary ---*/
+  geometry->SetBoundControlVolume(config, UPDATE);
+}
+
+void CRadialBasisFunctionInterpolation::UpdateInflationLayerCoords(CGeometry* geometry, const RADIAL_BASIS& type, const su2double radius){
+  
+  /*--- Vector for storing the coordinate variation ---*/
+  su2double var_coord[nDim]{0.0};
+  
+  /*--- Loop over the internal nodes ---*/
+  for(auto iNode = 0ul; iNode < IL_internalNodes[0]->size(); iNode++){
+
+    /*--- Loop for contribution of each control node ---*/
+    for(auto jNode = 0ul; jNode < nCtrlNodesGlobal; jNode++){
+
+      /*--- Determine distance between considered internal and control node ---*/
+      auto dist = GeometryToolbox::Distance(nDim, CtrlCoords[jNode*nDim], geometry->nodes->GetCoord((*IL_internalNodes[0])[iNode]));
+
+      /*--- Evaluate RBF based on distance ---*/
+      auto rbf = SU2_TYPE::GetValue(CRadialBasisFunction::Get_RadialBasisValue(type, radius, dist));
+      
+      /*--- Add contribution to total coordinate variation ---*/
+      for(auto iDim = 0u; iDim < nDim; iDim++){
+        var_coord[iDim] += rbf*InterpCoeff[jNode * nDim + iDim];
+      }
+    }
+
+    /*--- Apply the coordinate variation and resetting the var_coord vector to zero ---*/
+    for(auto iDim = 0u; iDim < nDim; iDim++){
+      geometry->nodes->AddCoord((*IL_internalNodes[0])[iNode], iDim, var_coord[iDim]);
+      var_coord[iDim] = 0;
+    } 
+  }  
+  
+  /*--- Applying the wall deformation ---*/
+  for(auto jNode = 0ul; jNode < (*ControlNodes[0]).size(); jNode++){ 
+    for(auto iDim = 0u; iDim < nDim; iDim++){
+        geometry->nodes->AddCoord((*ControlNodes[0])[jNode]->GetIndex(), iDim, CtrlNodeDeformation[jNode * nDim + iDim]); 
+    }
+  }
 
 }

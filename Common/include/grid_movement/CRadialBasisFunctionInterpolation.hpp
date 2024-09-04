@@ -248,7 +248,11 @@ public:
   inline static bool HasEqualIndex(CRadialBasisFunctionNode* a, CRadialBasisFunctionNode* b){
     return a->GetIndex() == b->GetIndex();
   }
-
+  
   void GetDoubleEdgeNode(const su2double* maxError, vector<unsigned long>& maxErrorNodes);
   void CompareError(su2double* error, unsigned long iNode, su2double& maxError, unsigned long& idx);
+
+  void GetIL_Deformation(CGeometry* geometry, CConfig* config, const RADIAL_BASIS& type, const su2double radius);
+  void GetIL_EdgeDeformation(CGeometry* geometry, CConfig* config, const RADIAL_BASIS& type, const su2double radius);
+  void UpdateInflationLayerCoords(CGeometry* geometry, const RADIAL_BASIS& type, const su2double radius);
 };

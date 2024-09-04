@@ -41,7 +41,9 @@ class CRadialBasisFunctionNode{
   unsigned short marker_idx;  /*!< \brief Marker index. */
   unsigned long vertex_idx;   /*!< \brief Vertex index. */
     
-  su2double error[3];         /*!< \brief Nodal data reduction error; */
+  su2double error[3];         /*!< \brief Nodal data reduction error. */
+  su2double new_coord[3];     /*!< \brief New coordinate position. */
+  su2double var_coord[3];     /*!< \brief Variation in coordinates. */
     
   public:
 
@@ -86,4 +88,22 @@ class CRadialBasisFunctionNode{
   * \return Nodal error.
   */
   inline su2double* GetError(){ return error;}
+
+  //TODO add descriptions
+
+  inline void SetNewCoord(const su2double* coord, unsigned short nDim) {
+    for (auto iDim = 0u; iDim < nDim; iDim++) new_coord[iDim] = coord[iDim];
+  }
+
+  inline void AddNewCoord(su2double coord, unsigned short iDim) {new_coord[iDim] += coord;}
+
+  inline su2double* GetNewCoord(){ return new_coord;}
+
+  inline void SetVarCoord(const su2double* coord, unsigned short nDim) {
+    for (auto iDim = 0u; iDim < nDim; iDim++) var_coord[iDim] = coord[iDim];
+  }
+
+  inline su2double* GetVarCoord(){ return var_coord;}
+
+
 };
