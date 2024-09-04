@@ -661,6 +661,7 @@ private:
   su2double RBF_GreedyTolerance;      /*!< \brief Tolerance used in the greedy data reduction for RBF mesh deformation. */
   su2double RBF_GreedyCorrectionFactor;   /*!< \brief Correction factor used in the greedy algorithm for RBF mesh deformation. */
   bool RBF_IL_Preservation;            /*!< \brief Determines use of inflation layer preservation method for RBF mesh deformation. */
+  su2double RBF_IL_Height;            /*!< \brief Height of the inflation layer. */
   unsigned short FFD_Continuity;     /*!< \brief Surface continuity at the intersection with the FFD */
   unsigned short FFD_CoordSystem;    /*!< \brief Define the coordinates system */
   su2double Deform_ElasticityMod,    /*!< \brief Young's modulus for volume deformation stiffness model */
@@ -4437,14 +4438,14 @@ public:
   bool GetRBF_DataReduction(void) const { return RBF_DataReduction; }
 
   /*!
-   * \brief Determines use of data reduction methods for RBF mesh deformation.
-   * \return <code>TRUE</code> means that data reduction is used.
+   * \brief Get the RBF data reduction tolerance.
+   * \return RBF data reduction tolerance.
    */
   su2double GetRBF_DataRedTolerance(void) const { return RBF_GreedyTolerance; }
 
   /*!
-   * \brief Determines use of data reduction methods for RBF mesh deformation.
-   * \return <code>TRUE</code> means that data reduction is used.
+   * \brief Get the RBF data reduction correction factor.
+   * \return RBF data reduction correction factor.
    */
   su2double GetRBF_DataRedCorrectionFactor(void) const { return RBF_GreedyCorrectionFactor; }
 
@@ -4453,6 +4454,12 @@ public:
    * \return <code>TRUE</code> means that data reduction is used.
    */
   bool GetRBF_IL_Preservation(void) const { return RBF_IL_Preservation; }
+
+  /*!
+   * \brief Get inflation layer height 
+   * \return Inflation layer height.
+   */
+  su2double GetRBF_IL_Height(void) const { return RBF_IL_Height; }
 
   /*!
    * \brief Get the kind of SU2 software component.

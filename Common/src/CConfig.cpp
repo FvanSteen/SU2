@@ -2393,6 +2393,8 @@ void CConfig::SetConfig_Options() {
   addDoubleOption("RBF_GREEDY_CORRECTION_FACTOR", RBF_GreedyCorrectionFactor, 1E-2);
   /* DESCRIPTION: Use of inlation layer preservation for RBF interpolated mesh deformation */
   addBoolOption("RBF_IL_PRESERVATION", RBF_IL_Preservation, false);
+  /* DESCRIPTION: Inflation layer height used in preservation algorithm with RBF mesh deformation. */
+  addDoubleOption("RBF_IL_HEIGHT", RBF_IL_Height, 0.0);
 
   /*!\par CONFIG_CATEGORY: FEM flow solver definition \ingroup Config*/
   /*--- Options related to the finite element flow solver---*/
