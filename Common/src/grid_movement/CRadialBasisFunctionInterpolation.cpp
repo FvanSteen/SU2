@@ -77,6 +77,16 @@ void CRadialBasisFunctionInterpolation::SetVolume_Deformation(CGeometry* geometr
   
   SetCtrlNodes(config);
 
+  //TODO do elsewhere
+  red_wall.resize(config->GetnMarker_Deform_Mesh_IL_Wall());
+  for (auto iMarker = 0u; iMarker < config->GetnMarker_Deform_Mesh_IL_Wall(); iMarker++){
+    red_wall[iMarker] = new vector<CRadialBasisFunctionNode*>;
+  }
+  red_edge.resize(config->GetnMarker_Deform_Mesh_IL_Wall());
+  for (auto iMarker = 0u; iMarker < config->GetnMarker_Deform_Mesh_IL_Wall(); iMarker++){
+    red_edge[iMarker] = new vector<CRadialBasisFunctionNode*>;
+  }
+
   /*--- Looping over the number of deformation iterations ---*/
   for (auto iNonlinear_Iter = 0ul; iNonlinear_Iter < Nonlinear_Iter; iNonlinear_Iter++) {
     
@@ -91,9 +101,8 @@ void CRadialBasisFunctionInterpolation::SetVolume_Deformation(CGeometry* geometr
     /*--- Solving the RBF system, resulting in the interpolation coefficients ---*/
     SolveRBF_System(geometry, config, kindRBF, radius);
 
-
     /*--- Updating the coordinates of the grid ---*/
-    UpdateGridCoord(geometry, config, kindRBF, radius, internalNodes);
+    UpdateGridCoord(geometry, config, kindRBF, radius, internalNodes, false);
     
     if(UpdateGeo){
       UpdateDualGrid(geometry, config);
@@ -124,56 +133,183 @@ void CRadialBasisFunctionInterpolation::SolveRBF_System(CGeometry* geometry, CCo
           Otherwise with a full set of control nodes. ---*/
   
   if(config->GetRBF_DataReduction()){
-    
-    /*--- Local maximum error node and corresponding maximum error  ---*/
-    vector <unsigned long> maxErrorNodes;
+    vector<unsigned long> maxErrorNodes;
+    su2double maxErrorLocal{0.};
+    unsigned short maxErrorVector{0};
 
-    su2double maxErrorLocal{0};
-    
-    /*--- Obtaining the initial maximum error nodes, which are found based on the maximum applied deformation.
-              Determining the data reduction tolerance, which is equal to a specified factor of the maximum total deformation. ---*/
-    if(nCtrlNodesGlobal == 0){
-      GetInitMaxErrorNode(geometry, config, maxErrorNodes, maxErrorLocal); 
-      SU2_MPI::Allreduce(&maxErrorLocal, &MaxErrorGlobal, 1, MPI_DOUBLE, MPI_MAX, SU2_MPI::GetComm());
+    if(config->GetRBF_IL_Preservation()){
 
-      /*--- Error tolerance for the data reduction tolerance ---*/
-      DataReductionTolerance = MaxErrorGlobal*config->GetRBF_DataRedTolerance() * ((su2double)config->GetGridDef_Nonlinear_Iter());
-    }
+      for ( auto iLayer = 0u; iLayer < config->GetnMarker_Deform_Mesh_IL_Wall(); iLayer++){
+        // setting control and boundary nodes, put input vectors at first index
+        SetNodes(red_wall[iLayer], test[iLayer], 0);
 
-    /*--- Number of greedy iterations. ---*/
-    unsigned short greedyIter = 0;
+        // Resetting error data
+        ResetError(maxErrorNodes, maxErrorLocal);
+        
+        // Get initial node based on max deformation
+        if(nCtrlNodesGlobal == 0){
+          GetInitMaxErrorNode(geometry, config, *test[iLayer], maxErrorNodes, maxErrorLocal);
+          SU2_MPI::Allreduce(&maxErrorLocal, &MaxErrorGlobal, 1, MPI_DOUBLE, MPI_MAX, SU2_MPI::GetComm());
 
-    /*--- While the maximum error is above the tolerance, data reduction algorithm is continued. ---*/
-    while(MaxErrorGlobal > DataReductionTolerance || greedyIter == 0){ 
-      
-      /*--- In case of a nonzero local error, control nodes are added ---*/
-      if(maxErrorLocal> 0){
-        AddControlNode(maxErrorNodes);
+          /*--- Error tolerance for the data reduction tolerance ---*/
+        DataReductionTolerance = MaxErrorGlobal*config->GetRBF_DataRedTolerance() * ((su2double)config->GetGridDef_Nonlinear_Iter());
+        DataRedTol_IL = MaxErrorGlobal*config->GetRBF_IL_DataRedTolerance() * ((su2double)config->GetGridDef_Nonlinear_Iter());
+        }
+
+        // nr of iters
+        auto iter_wall = 0u;
+
+        // do iterations 
+        while(MaxErrorGlobal > DataRedTol_IL || iter_wall == 0){
+          
+          if(maxErrorLocal > 0){
+            AddControlNode(maxErrorVector, maxErrorNodes, maxErrorLocal);
+          }
+
+          GetInterpCoeffs(geometry, config, type, radius);
+          
+          GetInterpError(geometry, config, type, radius, maxErrorLocal, maxErrorNodes, maxErrorVector);
+          SU2_MPI::Allreduce(&maxErrorLocal, &MaxErrorGlobal, 1, MPI_DOUBLE, MPI_MAX, SU2_MPI::GetComm());
+
+          cout.precision(5);
+          iter_wall++;
+
+          cout << "Wall iteration nr: " << iter_wall << ", error: " << maxErrorLocal << ", node: " << maxErrorNodes[0] << ", tolerance: " << DataRedTol_IL << endl;
+        }
+
+        // TODO should be together. 
+        GetIL_EdgeDeformation(geometry, config, type, radius, *test_edge[iLayer]);
+        GetIL_EdgeDeformation(geometry, config, type, radius, *red_edge[iLayer]);
+        
+
+        SetNodes(red_edge[iLayer], test_edge[iLayer], 1);
+
+        ResetError(maxErrorNodes, maxErrorLocal);
+
+        auto iter = 0u;
+
+        while(MaxErrorGlobal > DataRedTol_IL || iter == 0){
+
+          if(maxErrorLocal > 0){
+            AddControlNode(maxErrorVector, maxErrorNodes, maxErrorLocal);
+          }
+
+          GetInterpCoeffs(geometry, config, type, radius);
+          GetInterpError(geometry, config, type, radius, maxErrorLocal, maxErrorNodes, maxErrorVector);
+          SU2_MPI::Allreduce(&maxErrorLocal, &MaxErrorGlobal, 1, MPI_DOUBLE, MPI_MAX, SU2_MPI::GetComm());
+
+          iter++;
+          cout << "Edge iteration nr: " << iter << ", error: " << maxErrorLocal << ", tolerance: " << DataRedTol_IL << ", at node: " << (*BdryNodes[maxErrorVector])[maxErrorNodes[0]]->GetIndex() << endl;
+
+        }
+        
+        /*--- Updating the inflation layer coordinates ---*/ 
+        UpdateGridCoord(geometry, config, type, radius, *IL_internalNodes[iLayer], true);
       }
 
-      /*--- Obtaining the global number of control nodes. ---*/
-      Get_nCtrlNodes();
 
-      /*--- Obtaining the interpolation coefficients. ---*/
-      GetInterpCoeffs(geometry, config, type, radius);
+      //TODO remove these check files
+      ofstream of;
+      of.open("reducedwall.txt");
+      // for(auto x : Reduced_IL_WallNodes){ of << x->GetIndex() << endl;}
+      for (auto x : red_wall){
+        for (auto y : *x){
+          of << y->GetIndex() << endl;
+        }
+      }
+      of.close();
 
-      /*--- Determining the interpolation error, of the non-control boundary nodes. ---*/
-      GetInterpError(geometry, config, type, radius, maxErrorLocal, maxErrorNodes);       
-      SU2_MPI::Allreduce(&maxErrorLocal, &MaxErrorGlobal, 1, MPI_DOUBLE, MPI_MAX, SU2_MPI::GetComm());
+      of.open("reducededge.txt");
+      // for(auto x : Reduced_IL_EdgeNodes){ of << x->GetIndex() << endl;}
+      for (auto x : red_edge){
+        for (auto y : *x){
+          of << y->GetIndex() << endl;
+        }
+      }
+      of.close();
+      }
 
-      if(rank == MASTER_NODE) cout << "Greedy iteration: " << greedyIter << ". Max error: " << MaxErrorGlobal << ". Tol: " << DataReductionTolerance << ". Global nr. of ctrl nodes: "  << nCtrlNodesGlobal << "\n" << endl;
-      greedyIter++;
+      // some setControlNode function
+      if(config->GetRBF_IL_Preservation()){ 
+        /*--- Set control nodes for the domain outside inflation layer ---*/
+        ControlNodes.resize(config->GetnMarker_Deform_Mesh_IL_Wall() + 1); // reduced other boundary nodes and the edges of the inflation layers
+        BdryNodes.resize(config->GetnMarker_Deform_Mesh_IL_Wall() + 1);
 
-    }  
+        ControlNodes[0] = &ReducedControlNodes;
+        BdryNodes[0] = &BoundNodes;
+
+        for (auto iLayer = 0u; iLayer < config->GetnMarker_Deform_Mesh_IL_Wall(); iLayer++){
+          ControlNodes[iLayer + 1] = red_edge[iLayer];
+          BdryNodes[iLayer + 1] = test_edge[iLayer];
+        }
+        Get_nCtrlNodes();
+
+        
+      }else{
+        BdryNodes.resize(1);
+        BdryNodes[0]= &BoundNodes;
+        
+      }
+
+      ResetError(maxErrorNodes, maxErrorLocal);
+      // maxErrorLocal = 0;
+      // maxErrorNodes.clear();
+
+      auto iter_domain = 0u;    
+
+      // in case no inflation layer iterations were done a boundNode has to be selected
+      if(nCtrlNodesGlobal == 0){
+        GetInitMaxErrorNode(geometry, config, BoundNodes, maxErrorNodes, maxErrorLocal);
+        SU2_MPI::Allreduce(&maxErrorLocal, &MaxErrorGlobal, 1, MPI_DOUBLE, MPI_MAX, SU2_MPI::GetComm());
+
+        /*--- Error tolerance for the data reduction tolerance ---*/
+        if(MaxErrorGlobal != 0){
+          DataReductionTolerance = MaxErrorGlobal*config->GetRBF_DataRedTolerance() * ((su2double)config->GetGridDef_Nonlinear_Iter());
+        }
+      }
+
+      while(MaxErrorGlobal > DataReductionTolerance || iter_domain == 0){
+
+        if(maxErrorLocal > 0){
+          AddControlNode(maxErrorVector, maxErrorNodes, maxErrorLocal);
+        }
+
+        GetInterpCoeffs(geometry, config, type, radius);
+        GetInterpError(geometry, config, type, radius, maxErrorLocal, maxErrorNodes, maxErrorVector);
+        SU2_MPI::Allreduce(&maxErrorLocal, &MaxErrorGlobal, 1, MPI_DOUBLE, MPI_MAX, SU2_MPI::GetComm());
+
+        iter_domain++;
+        cout << "domain iteration nr: " << iter_domain << ", error: " << maxErrorLocal << ", tolerance: " << DataReductionTolerance << ", at node: " << (*BdryNodes[maxErrorVector])[maxErrorNodes[0]]->GetIndex() << endl;
+
+      }      
   }else{
-    ControlNodes.resize(1);
-    ControlNodes[0] = &IL_WallNodes;
-    Get_nCtrlNodes();
+    
+
     /*--- First deforming the inflation layer ---*/
     if(config->GetRBF_IL_Preservation()){
-      GetIL_Deformation(geometry, config, type, radius);
-    }
+      
+      
+      for(auto iLayer = 0u; iLayer < config->GetnMarker_Deform_Mesh_IL_Wall(); iLayer++){
+        ControlNodes.resize(1);
+        ControlNodes[0] = test[iLayer]; // set control nodes
+        Get_nCtrlNodes();   // update number of control nodes
 
+        GetIL_Deformation(geometry, config, type, radius, *test_edge[iLayer]); // finding deformation
+
+        /*--- Updating the inflation layer coordinates ---*/ 
+        UpdateGridCoord(geometry, config, type, radius, *IL_internalNodes[iLayer], true);
+      }
+      
+            
+      /*--- Set control nodes for the domain outside inflation layer ---*/
+      ControlNodes.resize(1);
+      ControlNodes[0] = &BoundNodes;
+      for(auto iLayer = 0u; iLayer < config->GetnMarker_Deform_Mesh_IL_Wall(); iLayer++){
+        ControlNodes.push_back(test_edge[iLayer]);
+      }
+      Get_nCtrlNodes();
+    }
+    
     /*--- Obtaining the interpolation coefficients. ---*/
     GetInterpCoeffs(geometry, config, type, radius);
   }
@@ -220,9 +356,11 @@ void CRadialBasisFunctionInterpolation::SetBoundNodes(CGeometry* geometry, CConf
     }
 
     if(config->GetMarker_All_Deform_Mesh_IL_Wall(iMarker)){
+      test.push_back(new vector<CRadialBasisFunctionNode*>);
       for ( auto iVertex = 0ul; iVertex < geometry->nVertex[iMarker]; iVertex++){
         auto iNode =  geometry->vertex[iMarker][iVertex]->GetNode();
         IL_WallNodes.push_back(new CRadialBasisFunctionNode(iNode, iMarker, iVertex));
+        test.back()->push_back(new CRadialBasisFunctionNode(iNode, iMarker, iVertex));
       }
     }
   }
@@ -231,7 +369,7 @@ void CRadialBasisFunctionInterpolation::SetBoundNodes(CGeometry* geometry, CConf
   sort(BoundNodes.begin(), BoundNodes.end(), HasSmallerIndex);
 
   /*--- Obtaining unique set ---*/
-  BoundNodes.resize(std::distance(BoundNodes.begin(), unique(BoundNodes.begin(), BoundNodes.end(), HasEqualIndex)));
+  BoundNodes.resize(distance(BoundNodes.begin(), unique(BoundNodes.begin(), BoundNodes.end(), HasEqualIndex)));
 
   ofstream of;
   of.open("boundnodes.txt");
@@ -239,9 +377,13 @@ void CRadialBasisFunctionInterpolation::SetBoundNodes(CGeometry* geometry, CConf
   of.close();
 
   of.open("wallnodes.txt");
-  for(auto x : IL_WallNodes){ of << x->GetIndex() << endl;}
+  // for(auto x : IL_WallNodes){ of << x->GetIndex() << endl;}
+  for (auto x : test){
+    for (auto y : *x){
+      of << y->GetIndex() << endl;
+    }
+  }
   of.close();
-
 
 }
 
@@ -384,7 +526,7 @@ void CRadialBasisFunctionInterpolation::SetInternalNodes(CGeometry* geometry, CC
 
   if(config->GetRBF_IL_Preservation()){
     //TODO add as config options
-    su2double IL_height = 0.0714027493868399;
+    su2double IL_height = config->GetRBF_IL_Height();
 
     /*--- ADT for wall elements ---*/ 
     vector<su2double> surfaceCoor;
@@ -402,9 +544,14 @@ void CRadialBasisFunctionInterpolation::SetInternalNodes(CGeometry* geometry, CC
     if(config->GetRBF_IL_Preservation()){ //TODO make function for this that returns pointer to the ad tree
 
       IL_internalNodes = new vector<unsigned long>*[config->GetnMarker_Deform_Mesh_IL_Wall()];
+      test_edge.resize(config->GetnMarker_Deform_Mesh_IL_Wall());
       for( auto iMarker = 0u; iMarker < config->GetnMarker_Deform_Mesh_IL_Wall(); iMarker++){
         IL_internalNodes[iMarker] = new vector<unsigned long>;
+        test_edge[iMarker] = new vector<CRadialBasisFunctionNode*>;
       }
+
+      
+
 
       vector<unsigned long> wallVertices(geometry->GetnPoint(), 0);
 
@@ -456,9 +603,10 @@ void CRadialBasisFunctionInterpolation::SetInternalNodes(CGeometry* geometry, CC
       if (!geometry->nodes->GetBoundary(iNode)) {
         ElemADT.DetermineNearestElement(geometry->nodes->GetCoord(iNode), dist, nearest_marker, nearest_elem, rankID);
         // cout << geometry->nodes->GetCoord(iNode)[0] << "\t" << geometry->nodes->GetCoord(iNode)[1] << "\t"<<  dist << "\t" << nearest_marker << "\t" << nearest_elem << endl;
-        if(abs(dist-IL_height) < 1e-12){
+        if(abs(dist-IL_height) < 1e-6){
           // cout << geometry->nodes->GetCoord(iNode)[0] << "\t" << geometry->nodes->GetCoord(iNode)[1] << "\t"<<  dist << "\t" << nearest_marker << "\t" << nearest_elem << endl;
           IL_EdgeNodes.push_back(new CRadialBasisFunctionNode(iNode, nearest_marker, nearest_elem));
+          test_edge[nearest_marker]->push_back(new CRadialBasisFunctionNode(iNode, nearest_marker, nearest_elem));
         }else if(dist-IL_height < 0){
           IL_internalNodes[nearest_marker]->push_back(iNode);
         }else{
@@ -466,6 +614,37 @@ void CRadialBasisFunctionInterpolation::SetInternalNodes(CGeometry* geometry, CC
         }
       }   
     }  
+
+    /*--- Adding nodes on markers considered as internal nodes ---*/
+    for (auto iMarker = 0u; iMarker < geometry->GetnMarker(); iMarker++){
+
+      /*--- Check if marker is considered as internal nodes ---*/
+      if(config->GetMarker_All_Deform_Mesh_Internal(iMarker)){
+        
+        /*--- Loop over marker vertices ---*/
+        for (auto iVertex = 0ul; iVertex < geometry->nVertex[iMarker]; iVertex++) {
+          /*--- Local node index ---*/
+          auto iNode = geometry->vertex[iMarker][iVertex]->GetNode();
+
+          /*--- if not among the boundary and wall nodes ---*/  //TODO check how this works for multiple ILs
+          if (find_if (BoundNodes.begin(), BoundNodes.end(), [&](CRadialBasisFunctionNode* i){return i->GetIndex() == iNode;}) == BoundNodes.end() &&
+                find_if (IL_WallNodes.begin(), IL_WallNodes.end(), [&](CRadialBasisFunctionNode* i){return i->GetIndex() == iNode;}) == IL_WallNodes.end()) {
+            ElemADT.DetermineNearestElement(geometry->nodes->GetCoord(iNode), dist, nearest_marker, nearest_elem, rankID);
+
+            if(abs(dist-IL_height) < 1e-6){ //TODO what if inflation layers have different heights?
+              // cout << geometry->nodes->GetCoord(iNode)[0] << "\t" << geometry->nodes->GetCoord(iNode)[1] << "\t"<<  dist << "\t" << nearest_marker << "\t" << nearest_elem << endl;
+              IL_EdgeNodes.push_back(new CRadialBasisFunctionNode(iNode, nearest_marker, nearest_elem));
+            }else if(dist-IL_height < 0){
+              IL_internalNodes[nearest_marker]->push_back(iNode);
+            }else{
+              internalNodes.push_back(iNode);
+            }
+          }
+        }
+      }
+    }
+
+
 
     //TODO remove these checks
     ofstream ofile;
@@ -476,16 +655,22 @@ void CRadialBasisFunctionInterpolation::SetInternalNodes(CGeometry* geometry, CC
     ofile.close();
 
     ofile.open("il_edge_nodes.txt");
-    for(auto x : IL_EdgeNodes){
-      ofile << x->GetIndex() << endl;
+    // for(auto x : IL_EdgeNodes){
+    //   ofile << x->GetIndex() << endl;
+    // }
+    for (auto x : test_edge){
+      for (auto y : *x){
+        ofile << y->GetIndex() << endl;
+      }
     }
     ofile.close();
 
     ofile.open("il_internal_nodes.txt");
     // for(auto x : IL_internalNodes){
-    for(auto y : *IL_internalNodes[0]){
-      ofile << y << endl;
+    for( auto iLayer = 0u; iLayer < config->GetnMarker_Deform_Mesh_IL_Wall(); iLayer++){
+      for(auto y : *IL_internalNodes[iLayer]){ ofile << y << endl;}
     }
+    
     // }
     ofile.close();
   }else{
@@ -495,28 +680,30 @@ void CRadialBasisFunctionInterpolation::SetInternalNodes(CGeometry* geometry, CC
       if (!geometry->nodes->GetBoundary(iNode)) {
         internalNodes.push_back(iNode);
       }   
-    }  
-  }
+    }
+    
+    /*--- Adding nodes on markers considered as internal nodes ---*/
+    for (auto iMarker = 0u; iMarker < geometry->GetnMarker(); iMarker++){
 
-  /*--- Adding nodes on markers considered as internal nodes ---*/
-  for (auto iMarker = 0u; iMarker < geometry->GetnMarker(); iMarker++){
+      /*--- Check if marker is considered as internal nodes ---*/
+      if(config->GetMarker_All_Deform_Mesh_Internal(iMarker)){
+        
+        /*--- Loop over marker vertices ---*/
+        for (auto iVertex = 0ul; iVertex < geometry->nVertex[iMarker]; iVertex++) {
 
-    /*--- Check if marker is considered as internal nodes ---*/
-    if(config->GetMarker_All_Deform_Mesh_Internal(iMarker)){
-      
-      /*--- Loop over marker vertices ---*/
-      for (auto iVertex = 0ul; iVertex < geometry->nVertex[iMarker]; iVertex++) { 
+          /*--- Local node index ---*/
+          auto iNode = geometry->vertex[iMarker][iVertex]->GetNode();
 
-        /*--- Local node index ---*/
-        auto iNode = geometry->vertex[iMarker][iVertex]->GetNode();
-
-        /*--- if not among the boundary nodes ---*/
-        if (find_if (BoundNodes.begin(), BoundNodes.end(), [&](CRadialBasisFunctionNode* i){return i->GetIndex() == iNode;}) == BoundNodes.end()) {
-          internalNodes.push_back(iNode);
-        }            
+          /*--- if not among the boundary nodes ---*/
+          if (find_if (BoundNodes.begin(), BoundNodes.end(), [&](CRadialBasisFunctionNode* i){return i->GetIndex() == iNode;}) == BoundNodes.end()) {
+            internalNodes.push_back(iNode);
+          }
+        }
       }
     }
   }
+
+  
 
   /*--- In case of a parallel computation, the nodes on the send/receive markers are included as internal nodes
           if they are not already a boundary node with known deformation ---*/
@@ -546,7 +733,7 @@ void CRadialBasisFunctionInterpolation::SetInternalNodes(CGeometry* geometry, CC
     sort(internalNodes.begin(), internalNodes.end());
 
     /*--- Obtaining unique set of internal nodes ---*/
-    internalNodes.resize(std::distance(internalNodes.begin(), unique(internalNodes.begin(), internalNodes.end())));
+    internalNodes.resize(distance(internalNodes.begin(), unique(internalNodes.begin(), internalNodes.end())));
   #endif
 }
 
@@ -576,8 +763,8 @@ void CRadialBasisFunctionInterpolation::ComputeInterpCoeffs(su2passivematrix& in
   #endif  
 }
 
-void CRadialBasisFunctionInterpolation::UpdateGridCoord(CGeometry* geometry, CConfig* config, const RADIAL_BASIS& type, const su2double radius, const vector<unsigned long>& internalNodes){
-  
+void CRadialBasisFunctionInterpolation::UpdateGridCoord(CGeometry* geometry, CConfig* config, const RADIAL_BASIS& type, const su2double radius, const vector<unsigned long>& internalNodes, bool inflationLayer){
+
   if(rank == MASTER_NODE){
     cout << "updating the grid coordinates" << endl;
   }
@@ -586,11 +773,11 @@ void CRadialBasisFunctionInterpolation::UpdateGridCoord(CGeometry* geometry, CCo
   UpdateInternalCoords(geometry, type, radius, internalNodes);
 
   /*--- Update of boundary node coordinates ---*/
-  UpdateBoundCoords(geometry, config, type, radius);   
+  UpdateBoundCoords(geometry, config, type, radius, inflationLayer);   
 
   /*--- In case of data reduction, perform the correction for nonzero error nodes ---*/
   if(config->GetRBF_DataReduction() && BoundNodes.size() > 0){
-    SetCorrection(geometry, config, type, internalNodes);
+    SetCorrection(geometry, config, type, internalNodes, inflationLayer);
   }
 }
 
@@ -625,7 +812,7 @@ void CRadialBasisFunctionInterpolation::UpdateInternalCoords(CGeometry* geometry
   }  
 }
 
-void CRadialBasisFunctionInterpolation::UpdateBoundCoords(CGeometry* geometry, CConfig* config, const RADIAL_BASIS& type, const su2double radius){
+void CRadialBasisFunctionInterpolation::UpdateBoundCoords(CGeometry* geometry, CConfig* config, const RADIAL_BASIS& type, const su2double radius, bool inflationLayer){
   
   /*--- Vector for storing the coordinate variation ---*/
   su2double var_coord[nDim]{0.0};
@@ -633,29 +820,28 @@ void CRadialBasisFunctionInterpolation::UpdateBoundCoords(CGeometry* geometry, C
   /*--- In case of data reduction, the non-control boundary nodes are treated as if they where internal nodes ---*/
   if(config->GetRBF_DataReduction()){
 
-    /*--- Looping over the non selected boundary nodes ---*/
-    for(auto iNode = 0ul; iNode < BoundNodes.size(); iNode++){
-      
-      /*--- Finding contribution of each control node ---*/
-      for( auto jNode = 0ul; jNode <  nCtrlNodesGlobal; jNode++){
-        
-        /*--- Distance of non-selected boundary node to control node ---*/
-        auto dist = GeometryToolbox::Distance(nDim, CtrlCoords[jNode*nDim], geometry->nodes->GetCoord(BoundNodes[iNode]->GetIndex()));
-        
-        /*--- Evaluation of the radial basis function based on the distance ---*/
-        auto rbf = SU2_TYPE::GetValue(CRadialBasisFunction::Get_RadialBasisValue(type, radius, dist));
+    for(auto iNodes : BdryNodes){
+      for(auto iNode : *iNodes){
+        for( auto jNode = 0ul; jNode < nCtrlNodesGlobal; jNode++){
+          /*--- Distance of non-selected boundary node to control node ---*/
+          auto dist = GeometryToolbox::Distance(nDim, CtrlCoords[jNode*nDim], geometry->nodes->GetCoord(iNode->GetIndex()));
+          
+          /*--- Evaluation of the radial basis function based on the distance ---*/
+          auto rbf = SU2_TYPE::GetValue(CRadialBasisFunction::Get_RadialBasisValue(type, radius, dist));
 
-        /*--- Computing and add the resulting coordinate variation ---*/
+          /*--- Computing and add the resulting coordinate variation ---*/
+          for(auto iDim = 0u; iDim < nDim; iDim++){
+            var_coord[iDim] += rbf*InterpCoeff[jNode * nDim + iDim];
+          }
+        }
+      
+        /*--- Applying the coordinate variation and resetting the var_coord vector*/
         for(auto iDim = 0u; iDim < nDim; iDim++){
-          var_coord[iDim] += rbf*InterpCoeff[jNode * nDim + iDim];
+          geometry->nodes->AddCoord(iNode->GetIndex(), iDim, var_coord[iDim]);
+          var_coord[iDim] = 0;
         }
       }
-
-      /*--- Applying the coordinate variation and resetting the var_coord vector*/
-      for(auto iDim = 0u; iDim < nDim; iDim++){
-        geometry->nodes->AddCoord(BoundNodes[iNode]->GetIndex(), iDim, var_coord[iDim]);
-        var_coord[iDim] = 0;
-      }
+      if(inflationLayer){break;}
     }
   }
   
@@ -667,21 +853,22 @@ void CRadialBasisFunctionInterpolation::UpdateBoundCoords(CGeometry* geometry, C
           geometry->nodes->AddCoord((*iControlNodes)[jNode]->GetIndex(), iDim, CtrlNodeDeformation[idx++]); 
       }
     }
+    if(inflationLayer){break;}
   } 
 }
 
 
-void CRadialBasisFunctionInterpolation::GetInitMaxErrorNode(CGeometry* geometry, CConfig* config, vector<unsigned long>& maxErrorNodes, su2double& maxErrorLocal){
+void CRadialBasisFunctionInterpolation::GetInitMaxErrorNode(CGeometry* geometry, CConfig* config, vector<CRadialBasisFunctionNode*>& movingNodes,  vector<unsigned long>& maxErrorNodes, su2double& maxErrorLocal){
 
   /*--- Set max error to zero ---*/
   maxErrorLocal = 0.0;
 
   unsigned long maxErrorNodeLocal;
   /*--- Loop over the nodes ---*/  
-  for(auto iNode = 0ul; iNode < BoundNodes.size(); iNode++){
+  for(auto iNode = 0ul; iNode < movingNodes.size(); iNode++){
 
     /*--- Compute to squared norm of the deformation ---*/
-    su2double normSquaredDeformation = GeometryToolbox::SquaredNorm(nDim, geometry->vertex[BoundNodes[iNode]->GetMarker()][BoundNodes[iNode]->GetVertex()]->GetVarCoord());    
+    su2double normSquaredDeformation = GeometryToolbox::SquaredNorm(nDim, geometry->vertex[movingNodes[iNode]->GetMarker()][movingNodes[iNode]->GetVertex()]->GetVarCoord());    
 
     /*--- In case squared norm deformation is larger than the error, update the error ---*/
     if(normSquaredDeformation > maxErrorLocal){
@@ -696,15 +883,14 @@ void CRadialBasisFunctionInterpolation::GetInitMaxErrorNode(CGeometry* geometry,
     /*--- Account for the possibility of applying the deformation in multiple steps ---*/
     maxErrorLocal = sqrt(maxErrorLocal) / ((su2double)config->GetGridDef_Nonlinear_Iter());
 
-
     /*--- Steps for finding a node on a secondary edge (double edged greedy algorithm) ---*/
 
     /*--- Total error, defined as total variation in coordinates ---*/
-    su2double* errorTotal = geometry->vertex[BoundNodes[maxErrorNodeLocal]->GetMarker()][BoundNodes[maxErrorNodeLocal]->GetVertex()]->GetVarCoord();
+    su2double* errorTotal = geometry->vertex[movingNodes[maxErrorNodeLocal]->GetMarker()][movingNodes[maxErrorNodeLocal]->GetVertex()]->GetVarCoord();
 
     /*--- Making a copy of the total error to errorStep, to allow for manipulation of the data ---*/
     su2double* errorStep = new su2double[nDim];
-    std::copy(errorTotal, errorTotal+nDim, errorStep);
+    copy(errorTotal, errorTotal+nDim, errorStep);
 
     /*--- Account for applying deformation in multiple steps ---*/
     for( unsigned short iDim = 0u; iDim < nDim; iDim++){
@@ -712,7 +898,9 @@ void CRadialBasisFunctionInterpolation::GetInitMaxErrorNode(CGeometry* geometry,
     }
     
     /*--- Finding a double edged error node if possible ---*/
-    GetDoubleEdgeNode(errorStep, maxErrorNodes);
+    if(0){
+      GetDoubleEdgeNode(errorStep, maxErrorNodes);
+    }
   }
 }
 
@@ -754,7 +942,7 @@ void CRadialBasisFunctionInterpolation::SetCtrlNodeCoords(CGeometry* geometry){
 };
 
 
-void CRadialBasisFunctionInterpolation::GetInterpError(CGeometry* geometry, CConfig* config, const RADIAL_BASIS& type, const su2double radius, su2double& maxErrorLocal, vector<unsigned long>& maxErrorNodes){
+void CRadialBasisFunctionInterpolation::GetInterpError(CGeometry* geometry, CConfig* config, const RADIAL_BASIS& type, const su2double radius, su2double& maxErrorLocal, vector<unsigned long>& maxErrorNodes, unsigned short& maxErrorVector){
   
   /*--- Array containing the local error ---*/
   su2double localError[nDim];
@@ -762,50 +950,99 @@ void CRadialBasisFunctionInterpolation::GetInterpError(CGeometry* geometry, CCon
   /*--- Magnitude of the local maximum error ---*/
   maxErrorLocal = 0.0;
   unsigned long maxErrorNodeLocal;
-  /*--- Loop over non-selected boundary nodes ---*/
-  for(auto iNode = 0ul; iNode < BoundNodes.size(); iNode++){
 
-    /*--- Compute nodal error ---*/
-    GetNodalError(geometry, config, type, radius, iNode, localError);
+  // unsigned short vec_cnt = 0;
+  for ( auto iNodes = 0u; iNodes < BdryNodes.size(); iNodes++ ){
 
-    /*--- Setting error ---*/
-    BoundNodes[iNode]->SetError(localError, nDim);
+    for ( auto iNode = 0ul; iNode < BdryNodes[iNodes]->size(); iNode++){
 
-    /*--- Compute error magnitude and update local maximum error if necessary ---*/
-    su2double errorMagnitude = GeometryToolbox::Norm(nDim, localError);
-    if(errorMagnitude > maxErrorLocal){
-      maxErrorLocal = errorMagnitude;
-      maxErrorNodeLocal = iNode;
+      // cout << (*BdryNodes[iNodes])[iNode]->GetIndex() << endl;
+      GetNodalError(geometry, config, type, radius, (*BdryNodes[iNodes])[iNode], localError);
+      (*BdryNodes[iNodes])[iNode]->SetError(localError,nDim);
+
+      /*--- Compute error magnitude and update local maximum error if necessary ---*/
+      su2double errorMagnitude = GeometryToolbox::Norm(nDim, localError);
+      if(errorMagnitude > maxErrorLocal){
+        maxErrorLocal = errorMagnitude;
+        maxErrorNodeLocal = iNode;
+        maxErrorVector = iNodes;
+        // vec_idx = vec_cnt;
+        // cout << "updated max error: "  << cnt << " " << iNode->GetIndex() << endl;
+
+      }
     }
-  }  
+  }
+  
+  // for(auto iNodes = 0u; iNodes < BdryNodes.size(); iNodes++ ){
+  //   unsigned long cnt = 0;
+  //   for(auto iNode : *iNodes){
+  //     // cout << iNode->GetIndex() << endl;
+  //     /*--- Compute nodal error ---*/
+      // GetNodalError(geometry, config, type, radius, iNode, localError);
+      
+  //     /*--- Setting error ---*/
+  //     iNode->SetError(localError, nDim);
+
+  //     /*--- Compute error magnitude and update local maximum error if necessary ---*/
+  //     su2double errorMagnitude = GeometryToolbox::Norm(nDim, localError);
+  //     if(errorMagnitude > maxErrorLocal){
+  //       maxErrorLocal = errorMagnitude;
+  //       maxErrorNodeLocal = cnt;
+  //       // vec_idx = vec_cnt;
+  //       cout << "updated max error: "  << cnt << " " << iNode->GetIndex() << endl;
+
+  //     }
+  //     cnt++;
+  //   }
+  //   // vec_cnt++;
+  // }
+
+  // /*--- Loop over non-selected boundary nodes ---*/
+  // for(auto iNode = 0ul; iNode < BoundNodes.size(); iNode++){
+
+  //   /*--- Compute nodal error ---*/
+  //   // GetNodalError(geometry, config, type, radius, iNode, localError);
+
+  //   /*--- Setting error ---*/
+  //   BoundNodes[iNode]->SetError(localError, nDim);
+
+  //   /*--- Compute error magnitude and update local maximum error if necessary ---*/
+  //   su2double errorMagnitude = GeometryToolbox::Norm(nDim, localError);
+  //   if(errorMagnitude > maxErrorLocal){
+  //     maxErrorLocal = errorMagnitude;
+  //     maxErrorNodeLocal = iNode;
+  //   }
+  // }  
 
   if(maxErrorLocal > 0){
     /*--- Including the maximum error nodes in the max error nodes vector ---*/
     maxErrorNodes.push_back(maxErrorNodeLocal);
-    
-    /*--- Finding a double edged error node if possible ---*/
-    GetDoubleEdgeNode(BoundNodes[maxErrorNodes[0]]->GetError(), maxErrorNodes);
+    if(0){ //TODO
+      /*--- Finding a double edged error node if possible ---*/
+      GetDoubleEdgeNode(BoundNodes[maxErrorNodes[0]]->GetError(), maxErrorNodes);
+    }
   }
 }
 
-void CRadialBasisFunctionInterpolation::GetNodalError(CGeometry* geometry, CConfig* config, const RADIAL_BASIS& type, const su2double radius, unsigned long iNode, su2double* localError){ 
+void CRadialBasisFunctionInterpolation::GetNodalError(CGeometry* geometry, CConfig* config, const RADIAL_BASIS& type, const su2double radius, CRadialBasisFunctionNode* iNode, su2double* localError){ 
   
   /*--- If requested (no by default) impose the surface deflections in increments ---*/
   const su2double VarIncrement = 1.0 / ((su2double)config->GetGridDef_Nonlinear_Iter());
   
   /*--- If node is part of a moving boundary then the error is defined as the difference
            between the found and prescribed displacements. Thus, here the displacement is substracted from the error ---*/
-  if(config->GetMarker_All_Moving(BoundNodes[iNode]->GetMarker())){
-    auto displacement = geometry->vertex[BoundNodes[iNode]->GetMarker()][BoundNodes[iNode]->GetVertex()]->GetVarCoord();
+
+    su2double* displacement;
+    if(geometry->nodes->GetBoundary(iNode->GetIndex())){
+      displacement = geometry->vertex[iNode->GetMarker()][iNode->GetVertex()]->GetVarCoord();
+    }else{
+      displacement = iNode->GetVarCoord();
+    }
+
 
     for(auto iDim = 0u; iDim < nDim; iDim++){
       localError[iDim] = -displacement[iDim] * VarIncrement;
     }
-  }else{
-    for(auto iDim = 0u; iDim < nDim; iDim++){
-      localError[iDim] = 0; 
-    }
-  }
 
   /*--- Resulting displacement from the RBF interpolation is added to the error ---*/
 
@@ -813,7 +1050,7 @@ void CRadialBasisFunctionInterpolation::GetNodalError(CGeometry* geometry, CConf
   for(auto jNode = 0ul; jNode < nCtrlNodesGlobal; jNode++){
 
     /*--- Distance between non-selected boundary node and control node ---*/
-    auto dist = GeometryToolbox::Distance(nDim, CtrlCoords[jNode *nDim], geometry->nodes->GetCoord(BoundNodes[iNode]->GetIndex()));
+    auto dist = GeometryToolbox::Distance(nDim, CtrlCoords[jNode *nDim], geometry->nodes->GetCoord(iNode->GetIndex()));
 
     /*--- Evaluation of Radial Basis Function ---*/
     auto rbf = SU2_TYPE::GetValue(CRadialBasisFunction::Get_RadialBasisValue(type, radius, dist));
@@ -894,7 +1131,7 @@ void CRadialBasisFunctionInterpolation::CompareError(su2double* error, unsigned 
   }
 }
 
-void CRadialBasisFunctionInterpolation::SetCorrection(CGeometry* geometry, CConfig* config, const RADIAL_BASIS& type, const vector<unsigned long>& internalNodes){
+void CRadialBasisFunctionInterpolation::SetCorrection(CGeometry* geometry, CConfig* config, const RADIAL_BASIS& type, const vector<unsigned long>& internalNodes, const bool inflationLayer){
 
   /*--- The non-selected control nodes still have a nonzero error once the maximum error falls below the data reduction tolerance. 
           This error is applied as correction and interpolated into the volumetric mesh for internal nodes that fall within the correction radius.
@@ -903,31 +1140,48 @@ void CRadialBasisFunctionInterpolation::SetCorrection(CGeometry* geometry, CConf
 
   /*--- Construction of the AD tree consisting of the non-selected boundary nodes ---*/
 
+
+
   /*--- Number of non-selected boundary nodes ---*/
-  const unsigned long nVertexBound = BoundNodes.size();
+  
+  vector<unsigned long> nVertex_prefix_sum(BdryNodes.size()+1, 0);
+  for(auto iNodes = 0u; iNodes < BdryNodes.size(); iNodes++){ //TODO change name of iNodes
+
+      nVertex_prefix_sum[iNodes + 1] = nVertex_prefix_sum[iNodes] + BdryNodes[iNodes]->size();
+  }
+     
   
   /*--- Vector storing the coordinates of the boundary nodes ---*/
-  vector<su2double> Coord_bound(nDim*nVertexBound);
+  vector<su2double> Coord_bound(nDim*nVertex_prefix_sum.back());
 
   /*--- Vector storing the IDs of the boundary nodes ---*/
-  vector<unsigned long> PointIDs(nVertexBound);
+  vector<unsigned long> PointIDs(nVertex_prefix_sum.back());
 
   /*--- Correction Radius, equal to maximum error times a prescribed constant ---*/
   const su2double CorrectionRadius = config->GetRBF_DataRedCorrectionFactor()*MaxErrorGlobal; 
 
   /*--- Storing boundary node information ---*/
   unsigned long i = 0;
-  unsigned long j = 0;
-  for(auto iVertex = 0ul; iVertex < nVertexBound; iVertex++){
-    auto iNode = BoundNodes[iVertex]->GetIndex();
-    PointIDs[i++] = iVertex;
-    for(auto iDim = 0u; iDim < nDim; iDim++){
-      Coord_bound[j++] = geometry->nodes->GetCoord(iNode, iDim);
+  for(auto iNodes : BdryNodes){
+    for( auto iRBFNode : *iNodes){
+      PointIDs[i] = i;
+      auto iNode = iRBFNode->GetIndex();
+      for(auto iDim = 0u; iDim < nDim; iDim++){
+        Coord_bound[i*nDim + iDim] = geometry->nodes->GetCoord(iNode, iDim);
+      }
+      i++;
     }
   }
+  // for(auto iVertex = 0ul; iVertex < nVertexBound; iVertex++){
+  //   auto iNode = BoundNodes[iVertex]->GetIndex();
+  //   PointIDs[i++] = iVertex;
+  //   for(auto iDim = 0u; iDim < nDim; iDim++){
+  //     Coord_bound[j++] = geometry->nodes->GetCoord(iNode, iDim);
+  //   }
+  // }
 
   /*--- Construction of AD tree ---*/
-  CADTPointsOnlyClass BoundADT(nDim, nVertexBound, Coord_bound.data(), PointIDs.data(), false);
+  CADTPointsOnlyClass BoundADT(nDim, nVertex_prefix_sum.back(), Coord_bound.data(), PointIDs.data(), false);
 
   /*--- ID of nearest boundary node ---*/
   unsigned long pointID;
@@ -935,6 +1189,8 @@ void CRadialBasisFunctionInterpolation::SetCorrection(CGeometry* geometry, CConf
   su2double dist;
   /*--- rank of nearest boundary node ---*/
   int rankID;
+
+
  
   /*--- Interpolation of the correction to the internal nodes that fall within the correction radius ---*/
   for(auto iNode = 0ul; iNode < internalNodes.size(); iNode++){
@@ -942,8 +1198,12 @@ void CRadialBasisFunctionInterpolation::SetCorrection(CGeometry* geometry, CConf
     /*--- Find nearest node ---*/
     BoundADT.DetermineNearestNode(geometry->nodes->GetCoord(internalNodes[iNode]), dist, pointID, rankID);  
     
+    
+    auto idx = distance(nVertex_prefix_sum.begin()+ 1, upper_bound(nVertex_prefix_sum.begin(), nVertex_prefix_sum.end(), pointID)); //TODO change var name
+    // if(idx < 0){idx = 0;}
     /*--- Get error of nearest node ---*/
-    auto err = BoundNodes[pointID]->GetError();
+    // auto err = BoundNodes[pointID]->GetError();
+    auto err = (*BdryNodes[idx])[pointID-nVertex_prefix_sum[idx]]->GetError();
 
     /*--- evaluate RBF ---*/    
     auto rbf = SU2_TYPE::GetValue(CRadialBasisFunction::Get_RadialBasisValue(type, CorrectionRadius, dist));
@@ -957,26 +1217,43 @@ void CRadialBasisFunctionInterpolation::SetCorrection(CGeometry* geometry, CConf
 
 
   /*--- Applying the correction to the non-selected boundary nodes ---*/
-  for(auto iNode = 0ul; iNode < BoundNodes.size(); iNode++){
-    auto err =  BoundNodes[iNode]->GetError();
-    for(auto iDim = 0u; iDim < nDim; iDim++){
-      geometry->nodes->AddCoord(BoundNodes[iNode]->GetIndex(), iDim, -err[iDim]);
+  // for(auto iNode = 0ul; iNode < BoundNodes.size(); iNode++){
+  //   auto err =  BoundNodes[iNode]->GetError();
+  //   for(auto iDim = 0u; iDim < nDim; iDim++){
+  //     geometry->nodes->AddCoord(BoundNodes[iNode]->GetIndex(), iDim, -err[iDim]);
+  //   }
+  // }
+  if(inflationLayer){
+    BdryNodes.resize(1); // todo if statement in case its for the inflation layer
+  }
+  for(auto iNodes : BdryNodes){
+    for (auto iNode : *iNodes){
+      auto err = iNode->GetError();
+      for(auto iDim=0; iDim < nDim; iDim++){
+        geometry->nodes->AddCoord(iNode->GetIndex(), iDim, -err[iDim]);
+      }
     }
   }
 }
 
 
-void CRadialBasisFunctionInterpolation::AddControlNode(vector<unsigned long>& maxErrorNodes){
-  /*--- Sort indices in descending order, to prevent shift in index as they are erased ---*/
-  sort(maxErrorNodes.rbegin(),maxErrorNodes.rend()); 
+void CRadialBasisFunctionInterpolation::AddControlNode(unsigned short maxErrorVector, vector<unsigned long>& maxErrorNodes, su2double& maxErrorLocal){
   
-  for(auto iNode : maxErrorNodes){
-    /*--- Addition of node to the reduced set of control nodes ---*/
-    ReducedControlNodes.push_back(move(BoundNodes[iNode]));
+  //TODO still sorting? 
+  // /*--- Sort indices in descending order, to prevent shift in index as they are erased ---*/
+  // sort(maxErrorNodes.rbegin(),maxErrorNodes.rend()); 
+  
+  for(auto iNode = 0u; iNode < maxErrorNodes.size(); iNode++){
+    ControlNodes[maxErrorVector]->push_back((*BdryNodes[maxErrorVector])[maxErrorNodes[iNode]]);
+    // /*--- Addition of node to the reduced set of control nodes ---*/
+    // ReducedControlNodes.push_back(move(BoundNodes[iNode]));
 
     /*--- Removal of node among the non-selected boundary nodes ---*/
-    BoundNodes.erase(BoundNodes.begin()+iNode);
+    // BoundNodes.erase(BoundNodes.begin()+iNode);
+    BdryNodes[maxErrorVector]->erase(BdryNodes[maxErrorVector]->begin() + maxErrorNodes[iNode]);
   }
+
+  Get_nCtrlNodes();
 
   /*--- Clearing maxErrorNodes vector ---*/
   maxErrorNodes.clear();
@@ -997,86 +1274,85 @@ void CRadialBasisFunctionInterpolation::Get_nCtrlNodes(){
 
 }
 
-void CRadialBasisFunctionInterpolation::GetIL_Deformation(CGeometry* geometry, CConfig* config, const RADIAL_BASIS& type, const su2double radius){
+void CRadialBasisFunctionInterpolation::GetIL_Deformation(CGeometry* geometry, CConfig* config, const RADIAL_BASIS& type, const su2double radius,  vector<CRadialBasisFunctionNode*>& edgeNodes){
  
-
   /*--- Solve for interpolation coefficient using solely wall nodes as ctrl nodes ---*/
   GetInterpCoeffs(geometry, config, type, radius);
   
   /*--- Obtain the required deformation of the inflation layer edge ---*/
-  GetIL_EdgeDeformation(geometry, config, type, radius);
+  GetIL_EdgeDeformation(geometry, config, type, radius, edgeNodes);
 
   /*--- Adding the inflation layer edge nodes to the control nodes ---*/
-  ControlNodes.push_back(&IL_EdgeNodes);
+  ControlNodes.push_back(&edgeNodes);
   Get_nCtrlNodes();
 
   /*--- Solve for interpolation coefficients ---*/
   GetInterpCoeffs(geometry, config, type, radius);
-
-  /*--- Updating the inflation layer coordinates ---*/ 
-  UpdateInflationLayerCoords(geometry, type, radius);
-  
-  /*--- Set control nodes for the domain outside inflation layer ---*/
-  ControlNodes.resize(2);
-  ControlNodes[0] = &BoundNodes;
-  ControlNodes[1] = &IL_EdgeNodes;  
-  Get_nCtrlNodes();
 }
 
-void CRadialBasisFunctionInterpolation::GetIL_EdgeDeformation(CGeometry* geometry, CConfig* config, const RADIAL_BASIS& type, const su2double radius){
+void CRadialBasisFunctionInterpolation::GetIL_EdgeDeformation(CGeometry* geometry, CConfig* config, const RADIAL_BASIS& type, const su2double radius, vector<CRadialBasisFunctionNode*>& edgeNodes){
+
+  // the assumption is made that all control nodes of the inflation layer are part of the same marker.
+  // if this is no longer the case then this requires a switch back to the combination of selected and
+  // non selected control nodes
 
   /*--- Inflation layer height ---*/
   su2double IL_height = config->GetRBF_IL_Height();
 
   /*--- Number of deformation steps ---*/
   auto Nonlinear_iter = config->GetGridDef_Nonlinear_Iter();
+  auto wallMarkerIdx = (*ControlNodes[0])[0]->GetMarker();
+  auto nVertex = geometry->GetnVertex(wallMarkerIdx);
+
 
   /*--- Obtaining free displacement of the inflation layer edge nodes ---*/
-  for(auto iNode = 0ul; iNode < IL_EdgeNodes.size(); iNode++){
+  // for(auto iNode = 0ul; iNode < edgeNodes.size(); iNode++){
+  for ( auto iNode : edgeNodes){
     
     /*--- Obtaining coordinates ---*/
-    auto coord = geometry->nodes->GetCoord(IL_EdgeNodes[iNode]->GetIndex());
+    auto coord = geometry->nodes->GetCoord(iNode->GetIndex());
 
     /*--- Setting new coord equal to old coord ---*/
-    IL_EdgeNodes[iNode]->SetNewCoord(coord, nDim);
+    iNode->SetNewCoord(coord, nDim);
 
     /*--- Loop for contribution of each control node ---*/
     for(auto jNode = 0ul; jNode < nCtrlNodesGlobal; jNode++){
-
+    
       /*--- Determine distance between considered internal and control node ---*/
-      auto dist = GeometryToolbox::Distance(nDim, CtrlCoords[jNode*nDim], geometry->nodes->GetCoord(IL_EdgeNodes[iNode]->GetIndex()));
+      auto dist = GeometryToolbox::Distance(nDim, CtrlCoords[jNode*nDim], geometry->nodes->GetCoord(iNode->GetIndex()));
 
       /*--- Evaluate RBF based on distance ---*/
       auto rbf = SU2_TYPE::GetValue(CRadialBasisFunction::Get_RadialBasisValue(type, radius, dist));
       
       /*--- Add contribution to new coordinates -- -*/
       for(auto iDim = 0u; iDim < nDim; iDim++){
-        IL_EdgeNodes[iNode]->AddNewCoord(rbf*InterpCoeff[jNode*nDim+iDim], iDim);
+        iNode->AddNewCoord(rbf*InterpCoeff[jNode*nDim+iDim], iDim);
       }
     }
   }  
 
+
   /*--- Assembly of AD tree containing the updated wall nodes ---*/
-  vector<su2double> Coord_bound(nDim * IL_WallNodes.size());
-  vector<unsigned long> PointIDs(IL_WallNodes.size());
-  unsigned long pointID;
-  su2double dist; 
-  int rankID;
+  vector<su2double> Coord_bound(nDim * nVertex);
+  vector<unsigned long> PointIDs(nVertex);
   unsigned long ii = 0;
 
   /*--- Loop through wall nodes ---*/
-  for( auto jNode = 0ul; jNode < IL_WallNodes.size(); jNode++){
+  for( auto jNode = 0ul; jNode < nVertex ; jNode++){
 
     /*--- Assign identifier ---*/
     PointIDs[jNode] = jNode;
 
+
+    auto var_coord = geometry->vertex[wallMarkerIdx][jNode]->GetVarCoord();
     for(auto iDim = 0u; iDim < nDim; iDim++){
 
       /*--- Applying the deformation ---*/
-      geometry->nodes->AddCoord(IL_WallNodes[jNode]->GetIndex(), iDim, CtrlNodeDeformation[jNode * nDim + iDim]);
-      
+      // geometry->nodes->AddCoord((*ControlNodes[0])[jNode]->GetIndex(), iDim, CtrlNodeDeformation[jNode * nDim + iDim]);
+      geometry->nodes->AddCoord(geometry->vertex[wallMarkerIdx][jNode]->GetNode(), iDim, var_coord[iDim]/Nonlinear_iter);
       /*--- store updated position ---*/
-      Coord_bound[ii++] = geometry->nodes->GetCoord(IL_WallNodes[jNode]->GetIndex())[iDim];
+      // Coord_bound[ii++] = geometry->nodes->GetCoord((*ControlNodes[0])[jNode]->GetIndex())[iDim];
+      Coord_bound[ii++] = geometry->nodes->GetCoord(geometry->vertex[wallMarkerIdx][jNode]->GetNode())[iDim];
     }
   }
 
@@ -1084,7 +1360,11 @@ void CRadialBasisFunctionInterpolation::GetIL_EdgeDeformation(CGeometry* geometr
   geometry->SetBoundControlVolume(config, UPDATE);
 
   /*--- AD tree with updated wall positions ---*/
-  CADTPointsOnlyClass WallADT(nDim, IL_WallNodes.size(), Coord_bound.data(), PointIDs.data(), true);
+  CADTPointsOnlyClass WallADT(nDim, nVertex, Coord_bound.data(), PointIDs.data(), true);
+
+  unsigned long pointID;
+  int rankID;
+  su2double dist; 
   
   /*--- Finding the required displacement of the edge nodes ---*/
 
@@ -1092,84 +1372,77 @@ void CRadialBasisFunctionInterpolation::GetIL_EdgeDeformation(CGeometry* geometr
   su2double dist_vec[nDim];
   su2double added_thickness;
 
+
   /*--- Loop over inflation layer wall nodes ---*/
-  for(auto iNode = 0ul; iNode < IL_EdgeNodes.size(); iNode++){      
-    
+  // for(auto iNode = 0ul; iNode < edgeNodes.size(); iNode++){      
+  for ( auto iNode : edgeNodes){
     /*--- Get nearest wall node ---*/
-    WallADT.DetermineNearestNode(IL_EdgeNodes[iNode]->GetNewCoord(), dist, pointID, rankID);
+    WallADT.DetermineNearestNode(iNode->GetNewCoord(), dist, pointID, rankID);
 
     /*--- Get normal and make it a unit vector ---*/
-    auto normal = geometry->vertex[IL_WallNodes[pointID]->GetMarker()][IL_WallNodes[pointID]->GetVertex()]->GetNormal(); 
+    auto normal = geometry->vertex[wallMarkerIdx][pointID]->GetNormal(); 
     auto normal_length = GeometryToolbox::Norm(nDim, normal);
     for(auto iDim = 0u; iDim < nDim; iDim++){
       normal[iDim] = normal[iDim]/normal_length;
     }
 
     /*--- Get distance vector from edge node to nearest wall node ---*/
-    GeometryToolbox::Distance(nDim, IL_EdgeNodes[iNode]->GetNewCoord(), geometry->nodes->GetCoord(IL_WallNodes[pointID]->GetIndex()), dist_vec);
+    GeometryToolbox::Distance(nDim, iNode->GetNewCoord(), geometry->nodes->GetCoord(geometry->vertex[wallMarkerIdx][pointID]->GetNode()), dist_vec);
 
     /*--- Dot product to obtain current inflation layer height ---*/
     auto dp = GeometryToolbox::DotProduct(nDim, normal, dist_vec);
 
     /*--- Get required change in inflation layer thickness ---*/
-    added_thickness = - IL_height + abs(dp); // TODO sign keeps changing somehow (started as +, - for 3D | -, + for 2D)
+    added_thickness = + IL_height - abs(dp); // TODO sign keeps changing somehow (started as +, - for 3D | -, + for 2D)
 
     /*--- Apply required change in coordinates and store variation w.r.t. initial coordinates. ---*/
     su2double var_coord[nDim];
     for(auto iDim = 0u; iDim < nDim; iDim++){
-      IL_EdgeNodes[iNode]->AddNewCoord(added_thickness * normal[iDim], iDim);
-      var_coord[iDim] = (IL_EdgeNodes[iNode]->GetNewCoord()[iDim] - geometry->nodes->GetCoord(IL_EdgeNodes[iNode]->GetIndex())[iDim])*Nonlinear_iter;
+      iNode->AddNewCoord(added_thickness * normal[iDim], iDim);
+      var_coord[iDim] = (iNode->GetNewCoord()[iDim] - geometry->nodes->GetCoord(iNode->GetIndex())[iDim])*Nonlinear_iter;
     }
 
-    IL_EdgeNodes[iNode]->SetVarCoord(var_coord, nDim);
+    iNode->SetVarCoord(var_coord, nDim);
   }
 
   /*--- Set wall back to initial position for accurate calculation of RBFs ---*/
-  for( auto jNode = 0ul; jNode < IL_WallNodes.size(); jNode++){
+  // for( auto jNode = 0ul; jNode < (*ControlNodes[0]).size(); jNode++){
+  //   for(auto iDim = 0u; iDim < nDim; iDim++){
+  //     geometry->nodes->AddCoord((*ControlNodes[0])[jNode]->GetIndex(), iDim, -CtrlNodeDeformation[jNode * nDim + iDim]);
+  //   }
+  // }
+for( auto jNode = 0ul; jNode < nVertex ; jNode++){
+
+    auto var_coord = geometry->vertex[wallMarkerIdx][jNode]->GetVarCoord();
     for(auto iDim = 0u; iDim < nDim; iDim++){
-      geometry->nodes->AddCoord(IL_WallNodes[jNode]->GetIndex(), iDim, -CtrlNodeDeformation[jNode * nDim + iDim]);
+
+      /*--- Applying the deformation ---*/
+      // geometry->nodes->AddCoord((*ControlNodes[0])[jNode]->GetIndex(), iDim, CtrlNodeDeformation[jNode * nDim + iDim]);
+      geometry->nodes->AddCoord(geometry->vertex[wallMarkerIdx][jNode]->GetNode(), iDim, -var_coord[iDim]/Nonlinear_iter);
+
     }
-  } 
+  }
 
   /*--- Update wall boundary ---*/
   geometry->SetBoundControlVolume(config, UPDATE);
 }
 
-void CRadialBasisFunctionInterpolation::UpdateInflationLayerCoords(CGeometry* geometry, const RADIAL_BASIS& type, const su2double radius){
+void CRadialBasisFunctionInterpolation::SetNodes(vector<CRadialBasisFunctionNode*>* reducedNodes, vector<CRadialBasisFunctionNode*>* Nodes, unsigned short index){
   
-  /*--- Vector for storing the coordinate variation ---*/
-  su2double var_coord[nDim]{0.0};
-  
-  /*--- Loop over the internal nodes ---*/
-  for(auto iNode = 0ul; iNode < IL_internalNodes[0]->size(); iNode++){
-
-    /*--- Loop for contribution of each control node ---*/
-    for(auto jNode = 0ul; jNode < nCtrlNodesGlobal; jNode++){
-
-      /*--- Determine distance between considered internal and control node ---*/
-      auto dist = GeometryToolbox::Distance(nDim, CtrlCoords[jNode*nDim], geometry->nodes->GetCoord((*IL_internalNodes[0])[iNode]));
-
-      /*--- Evaluate RBF based on distance ---*/
-      auto rbf = SU2_TYPE::GetValue(CRadialBasisFunction::Get_RadialBasisValue(type, radius, dist));
-      
-      /*--- Add contribution to total coordinate variation ---*/
-      for(auto iDim = 0u; iDim < nDim; iDim++){
-        var_coord[iDim] += rbf*InterpCoeff[jNode * nDim + iDim];
-      }
-    }
-
-    /*--- Apply the coordinate variation and resetting the var_coord vector to zero ---*/
-    for(auto iDim = 0u; iDim < nDim; iDim++){
-      geometry->nodes->AddCoord((*IL_internalNodes[0])[iNode], iDim, var_coord[iDim]);
-      var_coord[iDim] = 0;
-    } 
-  }  
-  
-  /*--- Applying the wall deformation ---*/
-  for(auto jNode = 0ul; jNode < (*ControlNodes[0]).size(); jNode++){ 
-    for(auto iDim = 0u; iDim < nDim; iDim++){
-        geometry->nodes->AddCoord((*ControlNodes[0])[jNode]->GetIndex(), iDim, CtrlNodeDeformation[jNode * nDim + iDim]); 
-    }
+  if(ControlNodes.size() != index+1){
+    ControlNodes.resize(index+1);
   }
+  if(BdryNodes.size() != index+1){
+    BdryNodes.resize(index+1);
+  }
+  ControlNodes[index] = reducedNodes;
+  BdryNodes[index] = Nodes;
+  
+  Get_nCtrlNodes();
 
+}
+
+void CRadialBasisFunctionInterpolation::ResetError(vector<unsigned long>& maxErrorNodes, su2double& maxErrorLocal){
+  maxErrorLocal = 0;
+  maxErrorNodes.clear();
 }

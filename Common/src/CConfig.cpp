@@ -2389,6 +2389,8 @@ void CConfig::SetConfig_Options() {
   addBoolOption("RBF_DATA_REDUCTION", RBF_DataReduction, true);
   /* DESCRIPTION: Tolerance for the data reduction methods used in RBF mesh deformation. */
   addDoubleOption("RBF_GREEDY_TOLERANCE", RBF_GreedyTolerance, 1E-2);
+  /* DESCRIPTION: Tolerance for the data reduction methods used in RBF mesh deformation in the inflation layer. */
+  addDoubleOption("RBF_IL_GREEDY_TOLERANCE", RBF_IL_GreedyTolerance, 1E-2);
   /* DESCRIPTION: Tolerance for the data reduction methods used in RBF mesh deformation. */
   addDoubleOption("RBF_GREEDY_CORRECTION_FACTOR", RBF_GreedyCorrectionFactor, 1E-2);
   /* DESCRIPTION: Use of inlation layer preservation for RBF interpolated mesh deformation */

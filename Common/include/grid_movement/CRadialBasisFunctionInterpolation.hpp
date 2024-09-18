@@ -29,7 +29,7 @@
 #include "CVolumetricMovement.hpp"
 #include "CRadialBasisFunctionNode.hpp"
 #include "../../include/toolboxes/CSymmetricMatrix.hpp"
-
+#include "../../include/adt/CADTPointsOnlyClass.hpp"
 /*!
  * \class CRadialBasisFunctionInterpolation
  * \brief Class for moving the volumetric numerical grid using Radial Basis Function interpolation.
@@ -43,9 +43,20 @@ protected:
   vector<CRadialBasisFunctionNode*> BoundNodes;               /*!< \brief Vector with boundary nodes.*/
   vector<CRadialBasisFunctionNode*> ReducedControlNodes;      /*!< \brief Vector with selected control nodes in data reduction algorithm. */
   vector<CRadialBasisFunctionNode*> IL_WallNodes;             /*!< \brief Vector with inflation layer wall nodes. */
-  vector<CRadialBasisFunctionNode*> IL_EdgeNodes;             /*!< \brief Vector with inflation layer edge nodes. */
-  vector<unsigned long>** IL_internalNodes;
+  vector<vector<CRadialBasisFunctionNode*>*> test; 
+  vector<vector<CRadialBasisFunctionNode*>*> test_edge; 
+  vector<vector<CRadialBasisFunctionNode*>*> red_wall;
+  vector<vector<CRadialBasisFunctionNode*>*> red_edge;
   
+  vector<CRadialBasisFunctionNode*> IL_EdgeNodes;             /*!< \brief Vector with inflation layer edge nodes. */
+
+  vector<CRadialBasisFunctionNode*> Reduced_IL_WallNodes;             /*!< \brief Vector with inflation layer wall nodes. */
+  vector<CRadialBasisFunctionNode*> Reduced_IL_EdgeNodes;             /*!< \brief Vector with inflation layer edge nodes. */
+  // vector<vector<CRadialBasisFunctionNode*>*> ReducedControlNodes2;      /*!< \brief Vector with selected control nodes in data reduction algorithm. */
+
+  vector<vector<CRadialBasisFunctionNode*>*> BdryNodes;
+
+  vector<unsigned long>** IL_internalNodes;
   
   vector<su2double> CtrlNodeDeformation;  /*!< \brief Control Node Deformation.*/ 
   vector<su2double> InterpCoeff;          /*!< \brief Control node interpolation coefficients.*/
@@ -56,6 +67,7 @@ protected:
 
   su2double MaxErrorGlobal{0.0};          /*!< \brief Maximum error data reduction algorithm.*/
   su2double DataReductionTolerance{0.0};
+  su2double DataRedTol_IL{0.0};
   
 public:
 
@@ -157,13 +169,13 @@ public:
   * \param[in] maxErrorNodeLocal - Local maximum error node.
   * \param[in] maxErrorLocal - Local maximum error.
   */
-  void GetInitMaxErrorNode(CGeometry* geometry, CConfig* config, vector<unsigned long>& maxErrorNodes, su2double& maxErrorLocal);
+  void GetInitMaxErrorNode(CGeometry* geometry, CConfig* config, vector<CRadialBasisFunctionNode*>& movingNodes, vector<unsigned long>& maxErrorNodes, su2double& maxErrorLocal);
 
-  /*! 
+  /*! //TODO update description
   * \brief Addition of control node to the reduced set.
   * \param[in] maxErrorNode - Node with maximum error to be added.
   */
-  void AddControlNode( vector<unsigned long>& maxErrorNodes);
+  void AddControlNode(unsigned short maxErrorVector, vector<unsigned long>& maxErrorNodes, su2double& maxErrorLocal);
 
   /*! 
   * \brief Compute global number of control nodes.
@@ -179,7 +191,7 @@ public:
   * \param[in] maxErrorNodeLocal - Local maximum error node.
   * \param[in] maxErrorLocal - Local maximum error.
   */
-  void GetInterpError(CGeometry* geometry, CConfig* config, const RADIAL_BASIS& type, const su2double radius,  su2double& maxErrorLocal, vector<unsigned long>& maxErrorNodes);
+  void GetInterpError(CGeometry* geometry, CConfig* config, const RADIAL_BASIS& type, const su2double radius,  su2double& maxErrorLocal, vector<unsigned long>& maxErrorNodes, unsigned short& maxErrorVector);
 
   /*! 
   * \brief Compute error of single node.
@@ -190,7 +202,7 @@ public:
   * \param[in] iNode - Local node in consideration.
   * \param[in] localError - Local error.
   */
-  void GetNodalError(CGeometry* geometry, CConfig* config, const RADIAL_BASIS& type, const su2double radius, unsigned long iNode, su2double* localError);
+  void GetNodalError(CGeometry* geometry, CConfig* config, const RADIAL_BASIS& type, const su2double radius, CRadialBasisFunctionNode* iNode, su2double* localError);
 
   /*!
   * \brief Updating the grid coordinates.
@@ -199,8 +211,9 @@ public:
   * \param[in] type - Type of radial basis function.
   * \param[in] radius - Support radius of the radial basis function.
   * \param[in] internalNodes - Internal nodes.
+  * \param[in] inflationLayer - inflation layer
   */
-  void UpdateGridCoord(CGeometry* geometry, CConfig* config, const RADIAL_BASIS& type, const su2double radius, const vector<unsigned long>& internalNodes);
+  void UpdateGridCoord(CGeometry* geometry, CConfig* config, const RADIAL_BASIS& type, const su2double radius, const vector<unsigned long>& internalNodes, bool inflationLayer);
 
   /*!
   * \brief Updating the internal node coordinates.
@@ -218,7 +231,7 @@ public:
   * \param[in] type - Type of radial basis function.
   * \param[in] radius - Support radius of the radial basis function.
   */
-  void UpdateBoundCoords(CGeometry* geometry, CConfig* config, const RADIAL_BASIS& type, const su2double radius);
+  void UpdateBoundCoords(CGeometry* geometry, CConfig* config, const RADIAL_BASIS& type, const su2double radius, bool inflationLayer);
 
   /*! 
   * \brief Apply correction to the nonzero error boundary nodes.
@@ -227,7 +240,7 @@ public:
   * \param[in] type - Type of radial basis function.
   * \param[in] internalNodes - Internal nodes.
   */
-  void SetCorrection(CGeometry* geometry, CConfig* config, const RADIAL_BASIS& type, const vector<unsigned long>& internalNodes);
+  void SetCorrection(CGeometry* geometry, CConfig* config, const RADIAL_BASIS& type, const vector<unsigned long>& internalNodes, const bool inflationLayer);
 
   /*!
   * \brief Custom comparison function, for sorting the CRadialBasisFunctionNode objects based on their index.
@@ -248,11 +261,12 @@ public:
   inline static bool HasEqualIndex(CRadialBasisFunctionNode* a, CRadialBasisFunctionNode* b){
     return a->GetIndex() == b->GetIndex();
   }
-  
+
   void GetDoubleEdgeNode(const su2double* maxError, vector<unsigned long>& maxErrorNodes);
   void CompareError(su2double* error, unsigned long iNode, su2double& maxError, unsigned long& idx);
 
-  void GetIL_Deformation(CGeometry* geometry, CConfig* config, const RADIAL_BASIS& type, const su2double radius);
-  void GetIL_EdgeDeformation(CGeometry* geometry, CConfig* config, const RADIAL_BASIS& type, const su2double radius);
-  void UpdateInflationLayerCoords(CGeometry* geometry, const RADIAL_BASIS& type, const su2double radius);
+  void GetIL_Deformation(CGeometry* geometry, CConfig* config, const RADIAL_BASIS& type, const su2double radius, vector<CRadialBasisFunctionNode*>& edgeNodes);
+  void GetIL_EdgeDeformation(CGeometry* geometry, CConfig* config, const RADIAL_BASIS& type, const su2double radius, vector<CRadialBasisFunctionNode*>& edgeNodes);
+  void SetNodes(vector<CRadialBasisFunctionNode*>* reducedNodes, vector<CRadialBasisFunctionNode*>* Nodes, unsigned short index);
+  void ResetError(vector<unsigned long>& maxErrorNodes, su2double& maxErrorLocal);
 };
