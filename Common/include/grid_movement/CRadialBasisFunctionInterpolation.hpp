@@ -169,13 +169,13 @@ public:
   * \param[in] maxErrorNodeLocal - Local maximum error node.
   * \param[in] maxErrorLocal - Local maximum error.
   */
-  void GetInitMaxErrorNode(CGeometry* geometry, CConfig* config, vector<CRadialBasisFunctionNode*>& movingNodes, vector<unsigned long>& maxErrorNodes, su2double& maxErrorLocal);
+  void GetInitMaxErrorNode(CGeometry* geometry, CConfig* config, vector<CRadialBasisFunctionNode*>& movingNodes, vector<unsigned long>& maxErrorNodes, vector<unsigned short>& maxErrorVector, su2double& maxErrorLocal);
 
   /*! //TODO update description
   * \brief Addition of control node to the reduced set.
   * \param[in] maxErrorNode - Node with maximum error to be added.
   */
-  void AddControlNode(unsigned short maxErrorVector, vector<unsigned long>& maxErrorNodes, su2double& maxErrorLocal);
+  void AddControlNode(vector<unsigned short>& maxErrorVector, vector<unsigned long>& maxErrorNodes, su2double& maxErrorLocal);
 
   /*! 
   * \brief Compute global number of control nodes.
@@ -191,7 +191,7 @@ public:
   * \param[in] maxErrorNodeLocal - Local maximum error node.
   * \param[in] maxErrorLocal - Local maximum error.
   */
-  void GetInterpError(CGeometry* geometry, CConfig* config, const RADIAL_BASIS& type, const su2double radius,  su2double& maxErrorLocal, vector<unsigned long>& maxErrorNodes, unsigned short& maxErrorVector);
+  void GetInterpError(CGeometry* geometry, CConfig* config, const RADIAL_BASIS& type, const su2double radius,  su2double& maxErrorLocal, vector<unsigned long>& maxErrorNodes, vector<unsigned short>& maxErrorVector);
 
   /*! 
   * \brief Compute error of single node.
@@ -262,11 +262,12 @@ public:
     return a->GetIndex() == b->GetIndex();
   }
 
-  void GetDoubleEdgeNode(const su2double* maxError, vector<unsigned long>& maxErrorNodes);
-  void CompareError(su2double* error, unsigned long iNode, su2double& maxError, unsigned long& idx);
+  void GetDoubleEdgeNode(const su2double* maxError, vector<unsigned long>& maxErrorNodes, vector<unsigned short>& maxErrorVector);
+  void CompareError(su2double* error, unsigned long iNode, unsigned short iNodes, su2double& maxError, unsigned long& idx, unsigned short& vec_idx);
 
-  void GetIL_Deformation(CGeometry* geometry, CConfig* config, const RADIAL_BASIS& type, const su2double radius, vector<CRadialBasisFunctionNode*>& edgeNodes);
-  void GetIL_EdgeDeformation(CGeometry* geometry, CConfig* config, const RADIAL_BASIS& type, const su2double radius, vector<CRadialBasisFunctionNode*>& edgeNodes);
+  void GetIL_EdgeDeformation(CGeometry* geometry, CConfig* config, const RADIAL_BASIS& type, const su2double radius, unsigned short iLayer);
   void SetNodes(vector<CRadialBasisFunctionNode*>* reducedNodes, vector<CRadialBasisFunctionNode*>* Nodes, unsigned short index);
-  void ResetError(vector<unsigned long>& maxErrorNodes, su2double& maxErrorLocal);
+  void ResetError(vector<unsigned long>& maxErrorNodes, vector<unsigned short>& maxErrorVector, su2double& maxErrorLocal);
+  void GetFreeDeformation(CGeometry* geometry, const RADIAL_BASIS& type, const su2double radius, vector<CRadialBasisFunctionNode*>* targetNodes);
+  void GetIL_EdgeVar(CGeometry* geometry, CConfig* config, unsigned short iLayer);
 };
