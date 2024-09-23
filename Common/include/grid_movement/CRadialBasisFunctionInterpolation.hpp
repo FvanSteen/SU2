@@ -47,6 +47,9 @@ protected:
   vector<vector<CRadialBasisFunctionNode*>*> test_edge; 
   vector<vector<CRadialBasisFunctionNode*>*> red_wall;
   vector<vector<CRadialBasisFunctionNode*>*> red_edge;
+
+  vector<CRadialBasisFunctionNode*> SlideEdgeNodes; //TODO
+  vector<CRadialBasisFunctionNode*> red_SlideEdgeNodes; //TODO
   
   vector<CRadialBasisFunctionNode*> IL_EdgeNodes;             /*!< \brief Vector with inflation layer edge nodes. */
 

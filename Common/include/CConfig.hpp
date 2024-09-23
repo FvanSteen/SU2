@@ -191,6 +191,7 @@ private:
   nMarker_Deform_Mesh,            /*!< \brief Number of deformable markers at the boundary. */
   nMarker_Deform_Mesh_Internal,   /*!< \brief Number of internal markers allowed to freely deform. */
   nMarker_Deform_Mesh_IL_Wall,    /*!< \brief Number of inflation layer markers. */
+  nMarker_Deform_Mesh_Slide,    /*!< \brief Number of sliding markers. */
   nMarker_Fluid_Load,             /*!< \brief Number of markers in which the flow load is computed/employed. */
   nMarker_Fluid_InterfaceBound,   /*!< \brief Number of fluid interface markers. */
   nMarker_CHTInterface,           /*!< \brief Number of conjugate heat transfer interface markers. */
@@ -242,6 +243,7 @@ private:
   *Marker_Deform_Mesh_Sym_Plane,  /*!< \brief Marker with symmetric deformation. */
   *Marker_Deform_Mesh_Internal,   /*!< \brief Internal marker allowed to freely deform. */
   *Marker_Deform_Mesh_IL_Wall,    /*!< \brief Inflation layer markers. */
+  *Marker_Deform_Mesh_Slide,    /*!< \brief Sliding markers. */
   *Marker_Fluid_Load,             /*!< \brief Markers in which the flow load is computed/employed. */
   *Marker_Fluid_InterfaceBound,   /*!< \brief Fluid interface markers. */
   *Marker_CHTInterface,           /*!< \brief Conjugate heat transfer interface markers. */
@@ -759,6 +761,7 @@ private:
   *Marker_All_Deform_Mesh_Sym_Plane, /*!< \brief Global index for markers with symmetric deformations. */
   *Marker_All_Deform_Mesh_Internal, /*!< \brief Global index for internal markers with free deformation. */
   *Marker_All_Deform_Mesh_IL_Wall, /*!< \brief Global index for inflation layer markers. */
+  *Marker_All_Deform_Mesh_Slide, /*!< \brief Global index for sliding markers. */
   *Marker_All_Fluid_Load,            /*!< \brief Global index for markers in which the flow load is computed/employed. */
   *Marker_All_PyCustom,              /*!< \brief Global index for Python customizable surfaces using the grid information. */
   *Marker_All_Designing,             /*!< \brief Global index for moving using the grid information. */
@@ -777,6 +780,7 @@ private:
   *Marker_CfgFile_Deform_Mesh_Sym_Plane, /*!< \brief Global index for markers with symmetric deformations. */
   *Marker_CfgFile_Deform_Mesh_Internal, /*!< \brief Global index for internal markers with free deformation. */
   *Marker_CfgFile_Deform_Mesh_IL_Wall, /*!< \brief Global index for markers with inflation layers. */
+  *Marker_CfgFile_Deform_Mesh_Slide, /*!< \brief Global index for sliding markers. */
   *Marker_CfgFile_Fluid_Load,         /*!< \brief Global index for markers in which the flow load is computed/employed. */
   *Marker_CfgFile_PyCustom,           /*!< \brief Global index for Python customizable surfaces using the config information. */
   *Marker_CfgFile_DV,                 /*!< \brief Global index for design variable markers using the config information. */
@@ -3070,6 +3074,7 @@ public:
    * \return Total number of deformable markers at the boundary.
    */
   unsigned short GetnMarker_Deform_Mesh_IL_Wall(void) const { return nMarker_Deform_Mesh_IL_Wall; }
+  unsigned short GetnMarker_Deform_Mesh_Slide(void) const { return nMarker_Deform_Mesh_Slide; } //TODO
 
   /*!
    * \brief Get the total number of markers in which the flow load is computed/employed.
@@ -3521,6 +3526,7 @@ public:
    * \param[in] val_interface - 0 or 1 depending if the the marker is or not a DEFORM_MESH_IL_WALL marker.
    */
   void SetMarker_All_Deform_Mesh_IL_Wall(unsigned short val_marker, unsigned short val_deform) { Marker_All_Deform_Mesh_IL_Wall[val_marker] = val_deform; }
+  void SetMarker_All_Deform_Mesh_Slide(unsigned short val_marker, unsigned short val_deform) { Marker_All_Deform_Mesh_Slide[val_marker] = val_deform; } //TODO
 
 
 
@@ -3688,6 +3694,7 @@ public:
    * \return 0 or 1 depending if the marker belongs to the DEFORM_MESH_IL_WALL subset.
    */
   unsigned short GetMarker_All_Deform_Mesh_IL_Wall(unsigned short val_marker) const { return Marker_All_Deform_Mesh_IL_Wall[val_marker]; }
+  unsigned short GetMarker_All_Deform_Mesh_Slide(unsigned short val_marker) const { return Marker_All_Deform_Mesh_Slide[val_marker]; } //TODO
 
   /*!
    * \brief Get whether marker <i>val_marker</i> is a Fluid_Load marker
@@ -6463,6 +6470,7 @@ public:
    * \return DEFORM_MESH_IL_WALL information of the boundary in the config information for the marker <i>val_marker</i>.
    */
   unsigned short GetMarker_CfgFile_Deform_Mesh_IL_Wall(const string& val_marker) const;
+  unsigned short GetMarker_CfgFile_Deform_Mesh_Slide(const string& val_marker) const; //TODO
 
   /*!
    * \brief Get the Fluid_Load information from the config definition for the marker <i>val_marker</i>.
@@ -6830,6 +6838,7 @@ public:
    * \return Internal index for a DEFORM_MESH_IL_WALL boundary <i>val_marker</i>.
    */
   unsigned short GetMarker_Deform_Mesh_IL_Wall(const string& val_marker) const;
+  unsigned short GetMarker_Deform_Mesh_Slide(const string& val_marker) const; //TODO
 
   /*!
    * \brief Get a bool for whether the marker is deformed. <i>val_marker</i>.
@@ -6839,7 +6848,8 @@ public:
   inline bool GetMarker_Deform_Mesh_Bool(const string& val_marker) const {
     return GetMarker_Deform_Mesh(val_marker) < nMarker_Deform_Mesh ||
         GetMarker_Deform_Mesh_Sym_Plane(val_marker) < nMarker_Deform_Mesh_Sym_Plane ||
-        GetMarker_Deform_Mesh_IL_Wall(val_marker) < nMarker_Deform_Mesh_IL_Wall; 
+        GetMarker_Deform_Mesh_IL_Wall(val_marker) < nMarker_Deform_Mesh_IL_Wall ||
+        GetMarker_Deform_Mesh_Slide(val_marker) < nMarker_Deform_Mesh_Slide; // TODO necessary?
   }
 
   /*!
@@ -6885,6 +6895,7 @@ public:
    *         has the marker <i>val_marker</i>.
    */
   string GetMarker_Deform_Mesh_IL_Wall_TagBound(unsigned short val_marker) const { return Marker_Deform_Mesh_IL_Wall[val_marker]; }
+  string GetMarker_Deform_Mesh_Slide_TagBound(unsigned short val_marker) const { return Marker_Deform_Mesh_Slide[val_marker]; } //TODO
   
   /*!
    * \brief Get the name of the Fluid_Load boundary defined in the geometry file.
