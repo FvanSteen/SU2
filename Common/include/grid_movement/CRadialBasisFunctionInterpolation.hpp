@@ -50,6 +50,9 @@ protected:
 
   vector<CRadialBasisFunctionNode*> SlideEdgeNodes; //TODO
   vector<CRadialBasisFunctionNode*> red_SlideEdgeNodes; //TODO
+
+  vector<CRadialBasisFunctionNode*> SlideSurfNodes; //TODO
+  vector<CRadialBasisFunctionNode*> red_SlideSurfNodes; //TODO
   
   vector<CRadialBasisFunctionNode*> IL_EdgeNodes;             /*!< \brief Vector with inflation layer edge nodes. */
 
@@ -58,6 +61,8 @@ protected:
   // vector<vector<CRadialBasisFunctionNode*>*> ReducedControlNodes2;      /*!< \brief Vector with selected control nodes in data reduction algorithm. */
 
   vector<vector<CRadialBasisFunctionNode*>*> BdryNodes;
+
+  vector<string> types;
 
   vector<unsigned long>** IL_internalNodes;
   
@@ -157,7 +162,7 @@ public:
   * \param[in] radius - Support radius of the radial basis function.
   * \param[in] invInterpMat - Inverse of the interpolation matrix.
   */
-  void ComputeInterpolationMatrix(CGeometry* geometry, const RADIAL_BASIS& type, const su2double radius, su2passivematrix& invInterpMat);
+  void ComputeInterpolationMatrix(CGeometry* geometry, CConfig* config, const RADIAL_BASIS& type, const su2double radius, su2passivematrix& invInterpMat);
 
   /*!
   * \brief Computation of interpolation coefficients
@@ -223,9 +228,9 @@ public:
   * \param[in] geometry - Geometrical definition of the problem.
   * \param[in] type - Type of radial basis function.
   * \param[in] radius - Support radius of the radial basis function.
-  * \param[in] internalNodes - Internal nodes.
+  * \param[in] internalNodes - Internal nodes. //TODO
   */
-  void UpdateInternalCoords(CGeometry* geometry, const RADIAL_BASIS& type, const su2double radius, const vector<unsigned long>& internalNodes);
+  void UpdateInternalCoords(CGeometry* geometry, CConfig* config, const RADIAL_BASIS& type, const su2double radius, const vector<unsigned long>& internalNodes);
 
   /*!
   * \brief Updating the internal node coordinates.
@@ -271,6 +276,7 @@ public:
   void GetIL_EdgeDeformation(CGeometry* geometry, CConfig* config, const RADIAL_BASIS& type, const su2double radius, unsigned short iLayer);
   void SetNodes(vector<CRadialBasisFunctionNode*>* reducedNodes, vector<CRadialBasisFunctionNode*>* Nodes, unsigned short index);
   void ResetError(vector<unsigned long>& maxErrorNodes, vector<unsigned short>& maxErrorVector, su2double& maxErrorLocal);
-  void GetFreeDeformation(CGeometry* geometry, const RADIAL_BASIS& type, const su2double radius, vector<CRadialBasisFunctionNode*>* targetNodes);
+  void GetFreeDeformation(CGeometry* geometry, CConfig* config, const RADIAL_BASIS& type, const su2double radius, vector<CRadialBasisFunctionNode*>* targetNodes);
   void GetIL_EdgeVar(CGeometry* geometry, CConfig* config, unsigned short iLayer);
+  su2double GetDistance(CGeometry* geometry, CConfig* config, unsigned short nDim, const su2double *a, const su2double *b);
 };
