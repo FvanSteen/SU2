@@ -279,4 +279,6 @@ public:
   void GetFreeDeformation(CGeometry* geometry, CConfig* config, const RADIAL_BASIS& type, const su2double radius, vector<CRadialBasisFunctionNode*>* targetNodes);
   void GetIL_EdgeVar(CGeometry* geometry, CConfig* config, unsigned short iLayer);
   su2double GetDistance(CGeometry* geometry, CConfig* config, unsigned short nDim, const su2double *a, const su2double *b);
+
+  void SetCorrectionSurf(CGeometry* geometry, CConfig* config, const RADIAL_BASIS& type);
 };

@@ -88,7 +88,7 @@ void CRadialBasisFunctionInterpolation::SetVolume_Deformation(CGeometry* geometr
   }
 
   /*--- Looping over the number of deformation iterations ---*/
-  for (auto iNonlinear_Iter = 0ul; iNonlinear_Iter < Nonlinear_Iter; iNonlinear_Iter++) {
+  for (auto iNonlinear_Iter = 0ul; iNonlinear_Iter < 1 /*Nonlinear_Iter*/; iNonlinear_Iter++) {
     
     /*--- Compute min volume in the entire mesh. ---*/
 
@@ -99,7 +99,7 @@ void CRadialBasisFunctionInterpolation::SetVolume_Deformation(CGeometry* geometr
     
 
     /*--- Solving the RBF system, resulting in the interpolation coefficients ---*/
-    SolveRBF_System(geometry, config, kindRBF, radius);
+    SolveRBF_System(geometry, config, kindRBF, radius); 
 
     /*--- Updating the coordinates of the grid ---*/
     UpdateGridCoord(geometry, config, kindRBF, radius, internalNodes, false);
@@ -258,8 +258,6 @@ void CRadialBasisFunctionInterpolation::SolveRBF_System(CGeometry* geometry, CCo
       }
 
       ResetError(maxErrorNodes, maxErrorVector, maxErrorLocal);
-      // maxErrorLocal = 0;
-      // maxErrorNodes.clear();
 
       auto iter_domain = 0u;    
 
@@ -280,10 +278,13 @@ void CRadialBasisFunctionInterpolation::SolveRBF_System(CGeometry* geometry, CCo
           AddControlNode(maxErrorVector, maxErrorNodes, maxErrorLocal);
         }
         ControlNodes.resize(1);
-        BdryNodes.resize(1);
         Get_nCtrlNodes();
+        BdryNodes.resize(1);
         types.resize(1);
         types[0] = "MOVING";
+
+        
+        
 
         if(red_SlideEdgeNodes.size() > 0){
           
@@ -387,27 +388,26 @@ void CRadialBasisFunctionInterpolation::SolveRBF_System(CGeometry* geometry, CCo
             geometry->vertex[iNode->GetMarker()][iNode->GetVertex()]->SetVarCoord(var_coord); 
 
           }
-
-          ControlNodes.push_back(&red_SlideEdgeNodes);
-          BdryNodes.push_back(&SlideEdgeNodes);
-          Get_nCtrlNodes();
-          types.push_back("EDGE");
-
         }
-        
+
+        ControlNodes.push_back(&red_SlideEdgeNodes);
+        BdryNodes.push_back(&SlideEdgeNodes);
+        types.push_back("EDGE");
+        Get_nCtrlNodes();
         
         GetInterpCoeffs(geometry, config, type, radius);
         GetInterpError(geometry, config, type, radius, maxErrorLocal, maxErrorNodes, maxErrorVector);
         SU2_MPI::Allreduce(&maxErrorLocal, &MaxErrorGlobal, 1, MPI_DOUBLE, MPI_MAX, SU2_MPI::GetComm());
 
         iter_domain++;
-        
+
         if (rank == MASTER_NODE && iter_domain % 1 == 0){
           cout << "domain iter nr: " << iter_domain << ",\t Nr. of ctrl nodes: " << nCtrlNodesGlobal <<  ",\t error: " << MaxErrorGlobal << ",\t tol: " << DataReductionTolerance << endl;
         }        
       }   
 
       if(SlideSurfNodes.size() > 0){
+
         ResetError(maxErrorNodes, maxErrorVector, maxErrorLocal);
 
         auto iter_surf = 0u;    
@@ -639,6 +639,13 @@ void CRadialBasisFunctionInterpolation::SolveRBF_System(CGeometry* geometry, CCo
           of << x->GetIndex() << endl;
         }
       of.close();   
+
+
+      of.open("reducedslidesurf.txt");
+      for (auto x : red_SlideSurfNodes){
+          of << x->GetIndex() << endl;
+        }
+      of.close(); 
   }else{
     
     /*--- First deforming the inflation layer ---*/
@@ -1433,19 +1440,80 @@ void CRadialBasisFunctionInterpolation::UpdateGridCoord(CGeometry* geometry, CCo
     cout << "updating the grid coordinates" << endl;
   }
 
+  
   /*--- Update of internal node coordinates ---*/
-
   UpdateInternalCoords(geometry, config, type, radius, internalNodes);
   
   /*--- Update of boundary node coordinates ---*/
   UpdateBoundCoords(geometry, config, type, radius, inflationLayer);   
 
-
-  /*--- In case of data reduction, perform the correction for nonzero error nodes ---*/
+   /*--- In case of data reduction, perform the correction for nonzero error nodes ---*/
   if(config->GetRBF_DataReduction() && (BoundNodes.size() > 0 || SlideEdgeNodes.size()> 0 )){
     SetCorrection(geometry, config, type, internalNodes, inflationLayer);
+  } 
+  
+}
+
+void CRadialBasisFunctionInterpolation::SetCorrectionSurf(CGeometry* geometry, CConfig* config, const RADIAL_BASIS& type){
+  cout << "performing the correction for the sliding surface nodes" << endl;
+
+  // make ad tree of the moving nodes
+  /*--- Vector storing the coordinates of the boundary nodes ---*/
+  vector<su2double> Coord_bound(nDim*BoundNodes.size());
+
+  /*--- Vector storing the IDs of the boundary nodes ---*/
+  vector<unsigned long> PointIDs(BoundNodes.size());
+
+  /*--- Correction Radius, equal to maximum error times a prescribed constant ---*/
+  const su2double CorrectionRadius = config->GetRBF_DataRedCorrectionFactor()*MaxErrorGlobal; 
+
+  /*--- Storing boundary node information ---*/
+  unsigned long i = 0;
+
+  for( auto iRBFNode : BoundNodes){
+    PointIDs[i] = i;
+    auto iNode = iRBFNode->GetIndex();
+    for(auto iDim = 0u; iDim < nDim; iDim++){
+      Coord_bound[i*nDim + iDim] = geometry->nodes->GetCoord(iNode, iDim);
+      // Coord_bound[i*nDim + iDim] = iRBFNode->GetNewCoord()[iDim]; //TODO move out of for loop if correct
+    }
+    i++;
   }
   
+  /*--- Construction of AD tree ---*/
+  CADTPointsOnlyClass BoundADT(nDim, BoundNodes.size(), Coord_bound.data(), PointIDs.data(), false);
+
+  /*--- ID of nearest boundary node ---*/
+  unsigned long pointID;
+  /*--- Distance to nearest boundary node ---*/
+  su2double dist;
+  /*--- rank of nearest boundary node ---*/
+  int rankID;
+
+  ofstream of;
+  of.open("slide_corr_surf.txt");
+  // loop through the surface nodes
+  for (auto iNode = 0ul; iNode < SlideSurfNodes.size(); iNode++){
+    // find nearest moving node
+    BoundADT.DetermineNearestNode(SlideSurfNodes[iNode]->GetNewCoord(), dist, pointID, rankID);
+
+    auto err = BoundNodes[pointID]->GetError();
+    
+    auto rbf = SU2_TYPE::GetValue(CRadialBasisFunction::Get_RadialBasisValue(type, CorrectionRadius, dist));
+
+    // Correction for the sliding surf node
+    for(auto iDim = 0u; iDim < nDim; iDim++){
+      SlideSurfNodes[iNode]->AddError(err[iDim]*rbf, iDim);
+    }
+
+
+    if(rbf > 0){
+      of << SlideSurfNodes[iNode]->GetIndex() << endl;
+    }
+
+  }
+
+  of.close();
 }
 
 void CRadialBasisFunctionInterpolation::UpdateInternalCoords(CGeometry* geometry, CConfig* config, const RADIAL_BASIS& type, const su2double radius, const vector<unsigned long>& internalNodes){
@@ -1640,189 +1708,207 @@ void CRadialBasisFunctionInterpolation::GetInterpError(CGeometry* geometry, CCon
   unsigned short maxErrorVectorLocal;
 
 
-
   // unsigned short vec_cnt = 0;
   for ( auto iNodes = 0u; iNodes < BdryNodes.size(); iNodes++ ){
     
     
-    // if(types[iNodes] == "SURF"){
-    //     // free deformation  
-    //   GetFreeDeformation(geometry, config, type, radius, &SlideSurfNodes);
+    if(types[iNodes] == "SURF"){
+        // free deformation  
+      GetFreeDeformation(geometry, config, type, radius, &SlideSurfNodes);
 
-    //   /*--- Vector storing the coordinates of the boundary nodes ---*/
-    //   vector<su2double> Coord_bound((red_SlideSurfNodes.size()+SlideSurfNodes.size()) * nDim);
+      /*--- Vector storing the coordinates of the boundary nodes ---*/
+      vector<su2double> Coord_bound((red_SlideSurfNodes.size()+SlideSurfNodes.size()) * nDim);
 
-    //   /*--- Vector storing the IDs of the boundary nodes ---*/
-    //   vector<unsigned long> PointIDs((red_SlideSurfNodes.size()+SlideSurfNodes.size()));
+      /*--- Vector storing the IDs of the boundary nodes ---*/
+      vector<unsigned long> PointIDs((red_SlideSurfNodes.size()+SlideSurfNodes.size()));
 
-    //   for ( auto iVertex = 0ul; iVertex < SlideSurfNodes.size(); iVertex++){
+      for ( auto iVertex = 0ul; iVertex < SlideSurfNodes.size(); iVertex++){
 
-    //     // auto iNode = SlideEdgeNodes[iVertex]->GetVertex();
-    //     PointIDs[iVertex] = SlideSurfNodes[iVertex]->GetVertex(); 
-    //     for(auto iDim = 0u; iDim < nDim; iDim++){
-    //       Coord_bound[ iVertex*nDim + iDim]  = geometry->nodes->GetCoord(SlideSurfNodes[iVertex]->GetIndex(), iDim);
-    //     }
-    //   }
+        // auto iNode = SlideEdgeNodes[iVertex]->GetVertex();
+        PointIDs[iVertex] = SlideSurfNodes[iVertex]->GetVertex(); 
+        for(auto iDim = 0u; iDim < nDim; iDim++){
+          Coord_bound[ iVertex*nDim + iDim]  = geometry->nodes->GetCoord(SlideSurfNodes[iVertex]->GetIndex(), iDim);
+        }
+      }
 
-    //   for ( auto iVertex = 0ul; iVertex < red_SlideSurfNodes.size(); iVertex++){
+      for ( auto iVertex = 0ul; iVertex < red_SlideSurfNodes.size(); iVertex++){
 
-    //     // auto iNode = SlideEdgeNodes[iVertex]->GetVertex();
-    //     PointIDs[iVertex + SlideSurfNodes.size()] = red_SlideSurfNodes[iVertex]->GetVertex();  
-    //     for(auto iDim = 0u; iDim < nDim; iDim++){
-    //       Coord_bound[ (SlideSurfNodes.size() + iVertex) * nDim + iDim]  = geometry->nodes->GetCoord(red_SlideSurfNodes[iVertex]->GetIndex(), iDim);
-    //     }
-    //   }
+        // auto iNode = SlideEdgeNodes[iVertex]->GetVertex();
+        PointIDs[iVertex + SlideSurfNodes.size()] = red_SlideSurfNodes[iVertex]->GetVertex();  
+        for(auto iDim = 0u; iDim < nDim; iDim++){
+          Coord_bound[ (SlideSurfNodes.size() + iVertex) * nDim + iDim]  = geometry->nodes->GetCoord(red_SlideSurfNodes[iVertex]->GetIndex(), iDim);
+        }
+      }
       
-    //   /*--- Number of non-selected boundary nodes ---*/
-    //   const unsigned long nVertexBound = PointIDs.size();
+      /*--- Number of non-selected boundary nodes ---*/
+      const unsigned long nVertexBound = PointIDs.size();
 
-    //   /*--- Construction of AD tree ---*/
-    //   CADTPointsOnlyClass BoundADT(nDim, nVertexBound, Coord_bound.data(), PointIDs.data(), false);
+      /*--- Construction of AD tree ---*/
+      CADTPointsOnlyClass BoundADT(nDim, nVertexBound, Coord_bound.data(), PointIDs.data(), false);
       
       
     
       
-    //   /*--- ID of nearest boundary node ---*/
-    //   unsigned long pointID;
-    //   /*--- Distance to nearest boundary node ---*/
-    //   su2double dist;
-    //   /*--- rank of nearest boundary node ---*/
-    //   int rankID;
+      /*--- ID of nearest boundary node ---*/
+      unsigned long pointID;
+      /*--- Distance to nearest boundary node ---*/
+      su2double dist;
+      /*--- rank of nearest boundary node ---*/
+      int rankID;
 
-    // // // loop through the sliding nodes 
-    // // for(auto iNode : SlideEdgeNodes){
-    //  for ( auto iNode = 0ul; iNode < BdryNodes[iNodes]->size(); iNode++){
-    //     BoundADT.DetermineNearestNode((*BdryNodes[iNodes])[iNode]->GetNewCoord(), dist, pointID, rankID);
+    // // loop through the sliding nodes 
+    // for(auto iNode : SlideEdgeNodes){
+     for ( auto iNode = 0ul; iNode < BdryNodes[iNodes]->size(); iNode++){
+        BoundADT.DetermineNearestNode((*BdryNodes[iNodes])[iNode]->GetNewCoord(), dist, pointID, rankID);
 
-    //     // geometry->vertex[SlideSurfNodes[]]
-    //     // cout << iNode << " " << SlideSurfNodes[iNode]->GetIndex() << " Nearest node: " << SlideSurfNodes[pointID]->GetIndex() << endl;
-    //     auto normal =  geometry->vertex[(*BdryNodes[iNodes])[iNode]->GetMarker()][pointID]->GetNormal();
-    //     // cout << normal[0] << " " << normal[1] <<" " << normal[2] << endl;
+        // geometry->vertex[SlideSurfNodes[]]
+        // cout << iNode << " " << SlideSurfNodes[iNode]->GetIndex() << " Nearest node: " << SlideSurfNodes[pointID]->GetIndex() << endl;
+        auto normal =  geometry->vertex[(*BdryNodes[iNodes])[iNode]->GetMarker()][pointID]->GetNormal();
+        // cout << normal[0] << " " << normal[1] <<" " << normal[2] << endl;
         
-    //     su2double dist_vec[nDim];
-    //     GeometryToolbox::Distance(nDim, (*BdryNodes[iNodes])[iNode]->GetNewCoord(), geometry->nodes->GetCoord(geometry->vertex[(*BdryNodes[iNodes])[iNode]->GetMarker()][pointID]->GetNode()), dist_vec);
+        su2double dist_vec[nDim];
+        GeometryToolbox::Distance(nDim, (*BdryNodes[iNodes])[iNode]->GetNewCoord(), geometry->nodes->GetCoord(geometry->vertex[(*BdryNodes[iNodes])[iNode]->GetMarker()][pointID]->GetNode()), dist_vec);
 
-    //     auto dot_product = GeometryToolbox::DotProduct(nDim, normal, dist_vec);
-    //     auto norm_magnitude =  GeometryToolbox::Norm(nDim, normal);
+        auto dot_product = GeometryToolbox::DotProduct(nDim, normal, dist_vec);
+        auto norm_magnitude =  GeometryToolbox::Norm(nDim, normal);
 
-    //     for (auto iDim = 0u; iDim < nDim; iDim++ ){
-    //       localError[iDim] = dot_product*normal[iDim]/pow(norm_magnitude,2);
-    //       // localError[iDim] = 0;
-    //     }
-    //     (*BdryNodes[iNodes])[iNode]->SetError(localError,nDim);
+        for (auto iDim = 0u; iDim < nDim; iDim++ ){
+          localError[iDim] = dot_product*normal[iDim]/pow(norm_magnitude,2);
+          // localError[iDim] = 0;
+        }
+        (*BdryNodes[iNodes])[iNode]->SetError(localError,nDim);
 
-    //     /*--- Compute error magnitude and update local maximum error if necessary ---*/
-    //     su2double errorMagnitude = GeometryToolbox::Norm(nDim, localError);
-    //     if(errorMagnitude > maxErrorLocal){
-    //       maxErrorLocal = errorMagnitude;
-    //       maxErrorNodeLocal = iNode;
-    //       maxErrorVectorLocal = iNodes;
 
-    //     }
-    //  }
+        // TODO remove these print statements
+        if(0){
+          cout << "\nNode in question: " << (*BdryNodes[iNodes])[iNode]->GetIndex() << endl;
+          cout << "Initial coord:\t" << geometry->nodes->GetCoord((*BdryNodes[iNodes])[iNode]->GetIndex())[0] << "\t" << geometry->nodes->GetCoord((*BdryNodes[iNodes])[iNode]->GetIndex())[1] << "\t" << geometry->nodes->GetCoord((*BdryNodes[iNodes])[iNode]->GetIndex())[2] << endl;
+          cout << "new coord: \t" << (*BdryNodes[iNodes])[iNode]->GetNewCoord()[0] << "\t" << (*BdryNodes[iNodes])[iNode]->GetNewCoord()[1] << "\t" << (*BdryNodes[iNodes])[iNode]->GetNewCoord()[2] << endl;
+          cout << "error: \t" << localError[0] << '\t' << localError[1] << "\t" << localError[2] <<  endl; 
+        }
 
-    // }else if (types[iNodes] == "EDGE"){
-    //   GetFreeDeformation(geometry, config, type, radius, &SlideEdgeNodes);
+        /*--- Compute error magnitude and update local maximum error if necessary ---*/
+        su2double errorMagnitude = GeometryToolbox::Norm(nDim, localError);
+        if(errorMagnitude > maxErrorLocal){
+          maxErrorLocal = errorMagnitude;
+          maxErrorNodeLocal = iNode;
+          maxErrorVectorLocal = iNodes;
 
-    //    // construction ad tree
+        }
+     }
+
+    }else if (types[iNodes] == "EDGE"){
+      GetFreeDeformation(geometry, config, type, radius, &SlideEdgeNodes);
+
+       // construction ad tree
           
-    //     /*--- Vector storing the coordinates of the boundary nodes ---*/
-    //     vector<su2double> Coord_bound((red_SlideEdgeNodes.size()+SlideEdgeNodes.size()) * nDim);
+        /*--- Vector storing the coordinates of the boundary nodes ---*/
+        vector<su2double> Coord_bound((red_SlideEdgeNodes.size()+SlideEdgeNodes.size()) * nDim);
 
-    //     /*--- Vector storing the IDs of the boundary nodes ---*/
-    //     vector<unsigned long> PointIDs((red_SlideEdgeNodes.size()+SlideEdgeNodes.size()));
+        /*--- Vector storing the IDs of the boundary nodes ---*/
+        vector<unsigned long> PointIDs((red_SlideEdgeNodes.size()+SlideEdgeNodes.size()));
 
-    //     for ( auto iVertex = 0ul; iVertex < SlideEdgeNodes.size(); iVertex++){
+        for ( auto iVertex = 0ul; iVertex < SlideEdgeNodes.size(); iVertex++){
 
-    //       // auto iNode = SlideEdgeNodes[iVertex]->GetVertex();
-    //       PointIDs[iVertex] = SlideEdgeNodes[iVertex]->GetVertex(); 
-    //       for(auto iDim = 0u; iDim < nDim; iDim++){
-    //         Coord_bound[ iVertex*nDim + iDim]  = geometry->nodes->GetCoord(SlideEdgeNodes[iVertex]->GetIndex(), iDim);
-    //       }
-    //     }
+          // auto iNode = SlideEdgeNodes[iVertex]->GetVertex();
+          PointIDs[iVertex] = SlideEdgeNodes[iVertex]->GetVertex(); 
+          for(auto iDim = 0u; iDim < nDim; iDim++){
+            Coord_bound[ iVertex*nDim + iDim]  = geometry->nodes->GetCoord(SlideEdgeNodes[iVertex]->GetIndex(), iDim);
+          }
+        }
 
-    //     for ( auto iVertex = 0ul; iVertex < red_SlideEdgeNodes.size(); iVertex++){
+        for ( auto iVertex = 0ul; iVertex < red_SlideEdgeNodes.size(); iVertex++){
 
-    //       // auto iNode = SlideEdgeNodes[iVertex]->GetVertex();
-    //       PointIDs[iVertex + SlideEdgeNodes.size()] = red_SlideEdgeNodes[iVertex]->GetVertex();  
-    //       for(auto iDim = 0u; iDim < nDim; iDim++){
-    //         Coord_bound[ (SlideEdgeNodes.size() + iVertex) * nDim + iDim]  = geometry->nodes->GetCoord(red_SlideEdgeNodes[iVertex]->GetIndex(), iDim);
-    //       }
-    //     }
+          // auto iNode = SlideEdgeNodes[iVertex]->GetVertex();
+          PointIDs[iVertex + SlideEdgeNodes.size()] = red_SlideEdgeNodes[iVertex]->GetVertex();  
+          for(auto iDim = 0u; iDim < nDim; iDim++){
+            Coord_bound[ (SlideEdgeNodes.size() + iVertex) * nDim + iDim]  = geometry->nodes->GetCoord(red_SlideEdgeNodes[iVertex]->GetIndex(), iDim);
+          }
+        }
         
-    //     /*--- Number of non-selected boundary nodes ---*/
-    //     const unsigned long nVertexBound = PointIDs.size();
+        /*--- Number of non-selected boundary nodes ---*/
+        const unsigned long nVertexBound = PointIDs.size();
 
-    //     /*--- Construction of AD tree ---*/
-    //     CADTPointsOnlyClass BoundADT(nDim, nVertexBound, Coord_bound.data(), PointIDs.data(), false);
+        /*--- Construction of AD tree ---*/
+        CADTPointsOnlyClass BoundADT(nDim, nVertexBound, Coord_bound.data(), PointIDs.data(), false);
                 
-    //     /*--- ID of nearest boundary node ---*/
-    //     unsigned long pointID;
-    //     /*--- Distance to nearest boundary node ---*/
-    //     su2double dist;
-    //     /*--- rank of nearest boundary node ---*/
-    //     int rankID;
+        /*--- ID of nearest boundary node ---*/
+        unsigned long pointID;
+        /*--- Distance to nearest boundary node ---*/
+        su2double dist;
+        /*--- rank of nearest boundary node ---*/
+        int rankID;
 
-    //     // // loop through the sliding nodes 
-    //     // for(auto iNode : SlideEdgeNodes){
-    //     for ( auto iNode = 0ul; iNode < BdryNodes[iNodes]->size(); iNode++){
-    //       BoundADT.DetermineNearestNode((*BdryNodes[iNodes])[iNode]->GetNewCoord(), dist, pointID, rankID);
-
-    //       // geometry->vertex[SlideSurfNodes[]]
-    //       // cout << iNode << " " << SlideSurfNodes[iNode]->GetIndex() << " Nearest node: " << SlideSurfNodes[pointID]->GetIndex() << endl;
-    //       auto normal =  geometry->vertex[(*BdryNodes[iNodes])[iNode]->GetMarker()][pointID]->GetNormal();
-    //       // cout << normal[0] << " " << normal[1] <<" " << normal[2] << endl;
+        // // loop through the sliding nodes 
+        // for(auto iNode : SlideEdgeNodes){
+        for ( auto iNode = 0ul; iNode < BdryNodes[iNodes]->size(); iNode++){
+          BoundADT.DetermineNearestNode((*BdryNodes[iNodes])[iNode]->GetNewCoord(), dist, pointID, rankID);
           
-    //       su2double dist_vec[nDim];
-    //       GeometryToolbox::Distance(nDim, (*BdryNodes[iNodes])[iNode]->GetNewCoord(), geometry->nodes->GetCoord(geometry->vertex[(*BdryNodes[iNodes])[iNode]->GetMarker()][pointID]->GetNode()), dist_vec);
+          // geometry->vertex[SlideSurfNodes[]]
+          // cout << iNode << " " << SlideSurfNodes[iNode]->GetIndex() << " Nearest node: " << SlideSurfNodes[pointID]->GetIndex() << endl;
+          auto normal =  geometry->vertex[(*BdryNodes[iNodes])[iNode]->GetMarker()][pointID]->GetNormal();
+          // cout << normal[0] << " " << normal[1] <<" " << normal[2] << endl;
+          
+          su2double dist_vec[nDim];
+          GeometryToolbox::Distance(nDim, (*BdryNodes[iNodes])[iNode]->GetNewCoord(), geometry->nodes->GetCoord(geometry->vertex[(*BdryNodes[iNodes])[iNode]->GetMarker()][pointID]->GetNode()), dist_vec);
 
-    //       auto dot_product = GeometryToolbox::DotProduct(nDim, normal, dist_vec);
-    //       auto norm_magnitude =  GeometryToolbox::Norm(nDim, normal);
+          auto dot_product = GeometryToolbox::DotProduct(nDim, normal, dist_vec);
+          auto norm_magnitude =  GeometryToolbox::Norm(nDim, normal);
 
-    //       for (auto iDim = 0u; iDim < nDim; iDim++ ){
-    //         localError[iDim] = dot_product*normal[iDim]/pow(norm_magnitude,2);
-    //       }
+          for (auto iDim = 0u; iDim < nDim; iDim++ ){
+            localError[iDim] = dot_product*normal[iDim]/pow(norm_magnitude,2);
+          }
 
-    //       if(nDim == 3 && !geometry->nodes->GetPeriodicBoundary(geometry->vertex[(*BdryNodes[iNodes])[iNode]->GetMarker()][pointID]->GetNode())){
-    //         // there is a second surface for this edge
-    //         unsigned short mark; 
-    //         for( auto i = 0u; i < config->GetnMarker_All(); i++){
-    //           if(geometry->nodes->GetVertex(geometry->vertex[(*BdryNodes[iNodes])[iNode]->GetMarker()][pointID]->GetNode(), i) != -1 && i != (*BdryNodes[iNodes])[iNode]->GetMarker()){
-    //             mark = i;
-    //             break;
-    //           }
-    //         }
+          if(nDim == 3 && !geometry->nodes->GetPeriodicBoundary(geometry->vertex[(*BdryNodes[iNodes])[iNode]->GetMarker()][pointID]->GetNode())){
+            // there is a second surface for this edge
+            unsigned short mark; 
+            for( auto i = 0u; i < config->GetnMarker_All(); i++){
+              if(geometry->nodes->GetVertex(geometry->vertex[(*BdryNodes[iNodes])[iNode]->GetMarker()][pointID]->GetNode(), i) != -1 && i != (*BdryNodes[iNodes])[iNode]->GetMarker()){
+                mark = i;
+                break;
+              }
+            }
         
-    //         auto jNode = geometry->nodes->GetVertex(geometry->vertex[(*BdryNodes[iNodes])[iNode]->GetMarker()][pointID]->GetNode(), mark);
-    //         if(jNode != -1){
-    //           normal = geometry->vertex[mark][jNode]->GetNormal();
+            auto jNode = geometry->nodes->GetVertex(geometry->vertex[(*BdryNodes[iNodes])[iNode]->GetMarker()][pointID]->GetNode(), mark);
+            if(jNode != -1){
+              normal = geometry->vertex[mark][jNode]->GetNormal();
               
-    //           dot_product = GeometryToolbox::DotProduct(nDim, normal, dist_vec);
+              dot_product = GeometryToolbox::DotProduct(nDim, normal, dist_vec);
 
-    //           norm_magnitude =  GeometryToolbox::Norm(nDim, normal);
+              norm_magnitude =  GeometryToolbox::Norm(nDim, normal);
               
-    //           for(auto iDim = 0u; iDim < nDim; iDim++){
-    //             localError[iDim] += dot_product*normal[iDim]/pow(norm_magnitude,2);
-    //             // iNode->AddNewCoord(-dot_product*normal[iDim]/pow(norm_magnitude,2), iDim);
-    //           }
-    //         }
-    //       }
-    //       (*BdryNodes[iNodes])[iNode]->SetError(localError,nDim);
+              for(auto iDim = 0u; iDim < nDim; iDim++){
+                localError[iDim] += dot_product*normal[iDim]/pow(norm_magnitude,2);
+                // iNode->AddNewCoord(-dot_product*normal[iDim]/pow(norm_magnitude,2), iDim);
+              }
+            }
+          }
 
-    //       /*--- Compute error magnitude and update local maximum error if necessary ---*/
-    //       su2double errorMagnitude = GeometryToolbox::Norm(nDim, localError);
-    //       if(errorMagnitude > maxErrorLocal){
-    //         maxErrorLocal = errorMagnitude;
-    //         maxErrorNodeLocal = iNode;
-    //         maxErrorVectorLocal = iNodes;
+          (*BdryNodes[iNodes])[iNode]->SetError(localError,nDim);
 
-    //       }
-    //     }
-    // }
+          /*--- Compute error magnitude and update local maximum error if necessary ---*/
+          su2double errorMagnitude = GeometryToolbox::Norm(nDim, localError);
+          if(errorMagnitude > maxErrorLocal){
+            maxErrorLocal = errorMagnitude;
+            maxErrorNodeLocal = iNode;
+            maxErrorVectorLocal = iNodes;
+
+          }
+
+          // TODO remove these print statements
+          if(0){
+          cout << "\nNode in question: " << (*BdryNodes[iNodes])[iNode]->GetIndex() << endl;
+          cout << "Initial coord:\t" << geometry->nodes->GetCoord((*BdryNodes[iNodes])[iNode]->GetIndex())[0] << "\t" << geometry->nodes->GetCoord((*BdryNodes[iNodes])[iNode]->GetIndex())[1] << "\t" << geometry->nodes->GetCoord((*BdryNodes[iNodes])[iNode]->GetIndex())[2] << endl;
+          cout << "new coord: \t" << (*BdryNodes[iNodes])[iNode]->GetNewCoord()[0] << "\t" << (*BdryNodes[iNodes])[iNode]->GetNewCoord()[1] << "\t" << (*BdryNodes[iNodes])[iNode]->GetNewCoord()[2] << endl;
+          cout << "error: \t" << localError[0] << '\t' << localError[1] << "\t" << localError[2] <<  endl; 
+          }
+
+        }
+    }
     // else if( types[iNodes] == "MOVING"){
+    else if (types[iNodes] == "MOVING"){
       for ( auto iNode = 0ul; iNode < BdryNodes[iNodes]->size(); iNode++){
 
-      
         GetNodalError(geometry, config, type, radius, (*BdryNodes[iNodes])[iNode], localError);
       
         (*BdryNodes[iNodes])[iNode]->SetError(localError,nDim);
@@ -1836,7 +1922,7 @@ void CRadialBasisFunctionInterpolation::GetInterpError(CGeometry* geometry, CCon
 
         }
       }
-    // }
+    }
   }
   
   // for(auto iNodes = 0u; iNodes < BdryNodes.size(); iNodes++ ){
@@ -1903,6 +1989,7 @@ void CRadialBasisFunctionInterpolation::GetNodalError(CGeometry* geometry, CConf
     if(geometry->nodes->GetBoundary(iNode->GetIndex())){
       displacement = geometry->vertex[iNode->GetMarker()][iNode->GetVertex()]->GetVarCoord();
     }else{
+      // For the inflation layer preservation edge nodes, since they are not explicitely prescribed by a marker 
       displacement = iNode->GetVarCoord();
     }
 
@@ -2019,6 +2106,10 @@ void CRadialBasisFunctionInterpolation::SetCorrection(CGeometry* geometry, CConf
   /*--- Construction of the AD tree consisting of the non-selected boundary nodes ---*/
 
 
+  if(config->GetRBF_DataReduction()){
+    SetCorrectionSurf(geometry, config, type);
+  }
+
 
   /*--- Number of non-selected boundary nodes ---*/
   
@@ -2089,6 +2180,43 @@ void CRadialBasisFunctionInterpolation::SetCorrection(CGeometry* geometry, CConf
       geometry->nodes->AddCoord(internalNodes[iNode], iDim, -rbf*err[iDim]);
     }
   }
+
+  ofstream of;
+  of.open("slide_corr_bound.txt");
+
+  for (auto iNode = 0ul; iNode < red_SlideSurfNodes.size(); iNode++){
+
+    /*--- Find nearest node ---*/
+    BoundADT.DetermineNearestNode(geometry->nodes->GetCoord(red_SlideSurfNodes[iNode]->GetIndex()), dist, pointID, rankID);  
+
+    auto idx = distance(nVertex_prefix_sum.begin()+ 1, upper_bound(nVertex_prefix_sum.begin(), nVertex_prefix_sum.end(), pointID)); //TODO change var name
+    if (idx == 0){
+      /*--- evaluate RBF ---*/    
+      auto rbf = SU2_TYPE::GetValue(CRadialBasisFunction::Get_RadialBasisValue(type, CorrectionRadius, dist));
+
+      if (rbf > 0){
+        of << (*BdryNodes[idx])[pointID-nVertex_prefix_sum[idx]]->GetIndex() << endl;
+      }
+    }
+  }
+
+  for (auto iNode = 0ul; iNode < SlideSurfNodes.size(); iNode++){
+
+    /*--- Find nearest node ---*/
+    BoundADT.DetermineNearestNode(geometry->nodes->GetCoord(SlideSurfNodes[iNode]->GetIndex()), dist, pointID, rankID);  
+    
+    auto idx = distance(nVertex_prefix_sum.begin()+ 1, upper_bound(nVertex_prefix_sum.begin(), nVertex_prefix_sum.end(), pointID)); //TODO change var name
+
+    if (idx == 0){
+      /*--- evaluate RBF ---*/    
+      auto rbf = SU2_TYPE::GetValue(CRadialBasisFunction::Get_RadialBasisValue(type, CorrectionRadius, dist));
+
+      if (rbf > 0){
+        of << (*BdryNodes[idx])[pointID-nVertex_prefix_sum[idx]]->GetIndex() << endl;
+      }
+    }
+  }
+  of.close();
   
 
 
