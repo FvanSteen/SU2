@@ -48,6 +48,7 @@ protected:
   vector<su2double> InterpCoeff;          /*!< \brief Control node interpolation coefficients.*/
 
   unsigned long nCtrlNodesGlobal{0};      /*!< \brief Total number of control nodes.*/
+  unsigned long nCtrlNodesLocal{0};       /*!< \brief Local number of control nodes.*/
   su2activematrix CtrlCoords;             /*!< \brief Coordinates of the control nodes.*/
 
   su2double MaxErrorGlobal{0.0};          /*!< \brief Maximum error data reduction algorithm.*/

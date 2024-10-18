@@ -263,7 +263,7 @@ void CRadialBasisFunctionInterpolation::ComputeInterpolationMatrix(CGeometry* ge
 void CRadialBasisFunctionInterpolation::SetDeformation(CGeometry* geometry, CConfig* config){
 
   /* --- Initialization of the deformation vector ---*/
-  CtrlNodeDeformation.resize(CtrlNodes[0]->size()*nDim, 0.0); //TODO local control nodes
+  CtrlNodeDeformation.resize(nCtrlNodesLocal*nDim, 0.0); //TODO local control nodes
 
   /*--- If requested (no by default) impose the surface deflections in
     increments and solve the grid deformation with
@@ -287,14 +287,11 @@ void CRadialBasisFunctionInterpolation::SetDeformation(CGeometry* geometry, CCon
   /*--- In case of a parallel computation, the deformation of all control nodes is send to the master process ---*/
   #ifdef HAVE_MPI
     
-    /*--- Local number of control nodes ---*/
-    unsigned long Local_nControlNodes = CtrlNodes->size();
-
     /*--- Array containing the local number of control nodes ---*/
     unsigned long Local_nControlNodesArr[size];
 
     /*--- gathering local control node coordinate sizes on all processes. ---*/
-    SU2_MPI::Allgather(&Local_nControlNodes, 1, MPI_UNSIGNED_LONG, Local_nControlNodesArr, 1, MPI_UNSIGNED_LONG, SU2_MPI::GetComm()); 
+    SU2_MPI::Allgather(&nCtrlNodesLocal, 1, MPI_UNSIGNED_LONG, Local_nControlNodesArr, 1, MPI_UNSIGNED_LONG, SU2_MPI::GetComm()); 
 
     /*--- Gathering all deformation vectors on the master node ---*/
     if(rank==MASTER_NODE){
@@ -314,7 +311,7 @@ void CRadialBasisFunctionInterpolation::SetDeformation(CGeometry* geometry, CCon
     }else{
 
       /*--- Sending the local deformation vector to the master node ---*/
-      SU2_MPI::Send(CtrlNodeDeformation.data(), Local_nControlNodes*nDim, MPI_DOUBLE, MASTER_NODE, 0, SU2_MPI::GetComm());  
+      SU2_MPI::Send(CtrlNodeDeformation.data(), nCtrlNodesLocal*nDim, MPI_DOUBLE, MASTER_NODE, 0, SU2_MPI::GetComm());  
     }
   #endif   
 }
@@ -534,19 +531,22 @@ void CRadialBasisFunctionInterpolation::SetCtrlNodeCoords(CGeometry* geometry){
   CtrlCoords.resize(nCtrlNodesGlobal*nDim);
   
   /*--- Array containing the local control node coordinates ---*/ 
-  su2double localCoords[nDim*CtrlNodes[0]->size()];
+  su2double localCoords[nDim*nCtrlNodesLocal];
   
   /*--- Storing local control node coordinates ---*/
-  for(auto iNode = 0ul; iNode < CtrlNodes[0]->size(); iNode++){
-    auto coord = geometry->nodes->GetCoord((*CtrlNodes[0])[iNode]->GetIndex());  
-    for ( auto iDim = 0u ; iDim < nDim; iDim++ ){
-      localCoords[ iNode * nDim + iDim ] = coord[iDim];
+  unsigned long idx = 0;
+  for (auto iCtrlNodes : CtrlNodes){
+    for (auto iNode : *iCtrlNodes){
+      auto coord = geometry->nodes->GetCoord(iNode->GetIndex());
+      for (auto iDim = 0u ; iDim < nDim; iDim++ ){
+        localCoords[ idx++ ] = coord[iDim];
+      }
     }
   }
 
   /*--- Gathering local control node coordinate sizes on all processes. ---*/
   int LocalCoordsSizes[size];
-  int localCoordsSize = nDim*CtrlNodes[0]->size();
+  int localCoordsSize = nDim*nCtrlNodesLocal;
   SU2_MPI::Allgather(&localCoordsSize, 1, MPI_INT, LocalCoordsSizes, 1, MPI_INT, SU2_MPI::GetComm()); 
 
   /*--- Array containing the starting indices for the allgatherv operation */
@@ -703,11 +703,12 @@ void CRadialBasisFunctionInterpolation::AddControlNode(unsigned long maxErrorNod
 
 
 void CRadialBasisFunctionInterpolation::Get_nCtrlNodesGlobal(){
-  /*--- Determining the global number of control nodes ---*/
+  /*--- Determining the local and global number of control nodes ---*/
 
   /*--- Local number of control nodes ---*/
-  auto local_nControlNodes = CtrlNodes[0]->size();
+  nCtrlNodesLocal = 0;
+  for (auto iCtrlNodes: CtrlNodes) { nCtrlNodesLocal += iCtrlNodes->size(); }
   
   /*--- Summation of local number of control nodes ---*/
-  SU2_MPI::Allreduce(&local_nControlNodes, &nCtrlNodesGlobal, 1, MPI_UNSIGNED_LONG, MPI_SUM, SU2_MPI::GetComm());
+  SU2_MPI::Allreduce(&nCtrlNodesLocal, &nCtrlNodesGlobal, 1, MPI_UNSIGNED_LONG, MPI_SUM, SU2_MPI::GetComm());
 }
