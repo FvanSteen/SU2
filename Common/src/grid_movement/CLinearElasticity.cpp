@@ -185,8 +185,8 @@ after grid deformation (LinSysSol contains the x, y, z displacements). ---*/
    * Hence we still need a communication of the transformed coordinates, otherwise periodicity
    * is not maintained. ---*/
 
-  geometry->InitiateComms(geometry, config, COORDINATES);
-  geometry->CompleteComms(geometry, config, COORDINATES);
+  geometry->InitiateComms(geometry, config, MPI_QUANTITIES::COORDINATES);
+  geometry->CompleteComms(geometry, config, MPI_QUANTITIES::COORDINATES);
 }
 
 void CLinearElasticity::UpdateGridCoord_Derivatives(CGeometry* geometry, CConfig* config,
