@@ -119,7 +119,7 @@ void CRadialBasisFunctionInterpolation::SolveRBF_System(CGeometry* geometry, CCo
     su2double maxErrorLocal{0};
 
     /*--- Obtaining the initial maximum error nodes, which are found based on the maximum applied deformation. */
-    if(ControlNodes->empty()){
+    if (nCtrlNodesGlobal == 0){
       GetInitMaxErrorNode(geometry, config, maxErrorNodeLocal, maxErrorLocal); 
       SU2_MPI::Allreduce(&maxErrorLocal, &MaxErrorGlobal, 1, MPI_DOUBLE, MPI_MAX, SU2_MPI::GetComm());
     }
@@ -205,16 +205,16 @@ void CRadialBasisFunctionInterpolation::SetBoundNodes(CGeometry* geometry, CConf
 }
 
 void CRadialBasisFunctionInterpolation::SetCtrlNodes(CConfig* config){
-  
+  ControlNodes.resize(1);
   /*--- Assigning the control nodes based on whether data reduction is applied or not. ---*/
   if(config->GetRBF_DataReduction()){
 
     /*--- Control nodes are an empty set ---*/
-    ControlNodes = &ReducedControlNodes;
+    ControlNodes[0] = &ReducedControlNodes;
   }else{
 
     /*--- Control nodes are the boundary nodes ---*/
-    ControlNodes = &BoundNodes;
+    ControlNodes[0] = &BoundNodes;
   }
 
   /*--- Obtaining the total number of control nodes. ---*/
@@ -263,26 +263,23 @@ void CRadialBasisFunctionInterpolation::ComputeInterpolationMatrix(CGeometry* ge
 void CRadialBasisFunctionInterpolation::SetDeformation(CGeometry* geometry, CConfig* config){
 
   /* --- Initialization of the deformation vector ---*/
-  CtrlNodeDeformation.resize(ControlNodes->size()*nDim, 0.0); 
+  CtrlNodeDeformation.resize(ControlNodes[0]->size()*nDim, 0.0); //TODO local control nodes
 
   /*--- If requested (no by default) impose the surface deflections in
     increments and solve the grid deformation with
     successive small deformations. ---*/
   const su2double VarIncrement = 1.0 / ((su2double)config->GetGridDef_Nonlinear_Iter());
 
+  
+  unsigned long idx = 0; 
+
   /*--- Loop over the control nodes ---*/
-  for (auto iNode = 0ul; iNode < ControlNodes->size(); iNode++) {
-    
-     /*--- Setting nonzero displacement of the moving markers, else setting zero displacement for static markers---*/
-    if (config->GetMarker_All_Moving((*ControlNodes)[iNode]->GetMarker())) {    
-      for (auto iDim = 0u; iDim < nDim; iDim++) {
-        CtrlNodeDeformation[iNode*nDim + iDim] = SU2_TYPE::GetValue(geometry->vertex[(*ControlNodes)[iNode]->GetMarker()][(*ControlNodes)[iNode]->GetVertex()]->GetVarCoord()[iDim] * VarIncrement);
-      }
-    }
-    
-    else{
-      for (auto iDim = 0u; iDim < nDim; iDim++) {
-        CtrlNodeDeformation[iNode*nDim + iDim] = 0.0;
+  for (auto iCtrlNodes : ControlNodes){
+    for (auto jNode : *iCtrlNodes){
+
+      /*--- Setting displacement ---*/
+      for (auto iDim = 0u; iDim < nDim; iDim++){
+        CtrlNodeDeformation[idx++] = SU2_TYPE::GetValue(geometry->vertex[jNode->GetMarker()][jNode->GetVertex()]->GetVarCoord()[iDim] * VarIncrement);
       }
     }
   }
@@ -496,10 +493,11 @@ void CRadialBasisFunctionInterpolation::UpdateBoundCoords(CGeometry* geometry, C
   }
   
   /*--- Applying the surface deformation, which are stored in the deformation vector ---*/
-  for(auto jNode = 0ul; jNode < ControlNodes->size(); jNode++){ 
-    if(config->GetMarker_All_Moving((*ControlNodes)[jNode]->GetMarker())){
+  unsigned long idx = 0;
+  for ( auto iCtrlNodes : ControlNodes){
+    for(auto jNode : *iCtrlNodes){ 
       for(auto iDim = 0u; iDim < nDim; iDim++){
-          geometry->nodes->AddCoord((*ControlNodes)[jNode]->GetIndex(), iDim, CtrlNodeDeformation[jNode*nDim + iDim]); 
+        geometry->nodes->AddCoord(jNode->GetIndex(), iDim, CtrlNodeDeformation[idx++]); 
       }
     }
   } 
@@ -536,11 +534,11 @@ void CRadialBasisFunctionInterpolation::SetCtrlNodeCoords(CGeometry* geometry){
   CtrlCoords.resize(nCtrlNodesGlobal*nDim);
   
   /*--- Array containing the local control node coordinates ---*/ 
-  su2double localCoords[nDim*ControlNodes->size()];
+  su2double localCoords[nDim*ControlNodes[0]->size()];
   
   /*--- Storing local control node coordinates ---*/
-  for(auto iNode = 0ul; iNode < ControlNodes->size(); iNode++){
-    auto coord = geometry->nodes->GetCoord((*ControlNodes)[iNode]->GetIndex());  
+  for(auto iNode = 0ul; iNode < ControlNodes[0]->size(); iNode++){
+    auto coord = geometry->nodes->GetCoord((*ControlNodes[0])[iNode]->GetIndex());  
     for ( auto iDim = 0u ; iDim < nDim; iDim++ ){
       localCoords[ iNode * nDim + iDim ] = coord[iDim];
     }
@@ -548,7 +546,7 @@ void CRadialBasisFunctionInterpolation::SetCtrlNodeCoords(CGeometry* geometry){
 
   /*--- Gathering local control node coordinate sizes on all processes. ---*/
   int LocalCoordsSizes[size];
-  int localCoordsSize = nDim*ControlNodes->size();
+  int localCoordsSize = nDim*ControlNodes[0]->size();
   SU2_MPI::Allgather(&localCoordsSize, 1, MPI_INT, LocalCoordsSizes, 1, MPI_INT, SU2_MPI::GetComm()); 
 
   /*--- Array containing the starting indices for the allgatherv operation */
@@ -708,7 +706,7 @@ void CRadialBasisFunctionInterpolation::Get_nCtrlNodesGlobal(){
   /*--- Determining the global number of control nodes ---*/
 
   /*--- Local number of control nodes ---*/
-  auto local_nControlNodes = ControlNodes->size();
+  auto local_nControlNodes = ControlNodes[0]->size();
   
   /*--- Summation of local number of control nodes ---*/
   SU2_MPI::Allreduce(&local_nControlNodes, &nCtrlNodesGlobal, 1, MPI_UNSIGNED_LONG, MPI_SUM, SU2_MPI::GetComm());
