@@ -39,9 +39,9 @@
 class CRadialBasisFunctionInterpolation : public CVolumetricMovement {
 protected:
 
-  vector<vector<CRadialBasisFunctionNode*>*> ControlNodes;  /*!< \brief Vector with control nodes*/
+  vector<vector<CRadialBasisFunctionNode*>*> CtrlNodes;  /*!< \brief Vector with control nodes*/
   vector<CRadialBasisFunctionNode*> BoundNodes;               /*!< \brief Vector with boundary nodes.*/
-  vector<CRadialBasisFunctionNode*> ReducedControlNodes;      /*!< \brief Vector with selected control nodes in data reduction algorithm. */
+  vector<CRadialBasisFunctionNode*> RedCtrlNodes;      /*!< \brief Vector with selected control nodes in data reduction algorithm. */
   
   
   vector<su2double> CtrlNodeDeformation;  /*!< \brief Control Node Deformation.*/ 
